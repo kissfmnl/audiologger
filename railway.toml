@@ -5,5 +5,7 @@ builder = "dockerfile"
 startCommand = "uvicorn app.main:app --host 0.0.0.0 --port 8000"
 restartPolicyType = "always"
 
+# Persistent storage: attach a volume to this service in Railway (Settings → Volumes).
+# Mount path must be /app/recordings — the app uses RAILWAY_VOLUME_MOUNT_PATH at runtime.
 [[volumes]]
 mountPath = "/app/recordings"

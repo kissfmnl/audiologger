@@ -9,6 +9,7 @@ recordings/*.mp3
 recordings/logs/
 recordings/audiologger.db
 recordings/stations.backup.json
+recordings/stations.backup.json.bak
 recordings/logos/*.jpg
 static/trimmed/
 .DS_Store

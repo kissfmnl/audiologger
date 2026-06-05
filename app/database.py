@@ -1,4 +1,5 @@
 import logging
+import os
 import shutil
 from pathlib import Path
 
@@ -9,12 +10,29 @@ from app.models import Recording, Station
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-RECORDINGS_DIR = BASE_DIR / "recordings"
-LOGS_DIR = RECORDINGS_DIR / "logs"
-LOGOS_DIR = RECORDINGS_DIR / "logos"
 TRIMMED_DIR = BASE_DIR / "static" / "trimmed"
 LEGACY_DATABASE_PATH = BASE_DIR / "audiologger.db"
+
+
+def resolve_recordings_dir() -> Path:
+    """Gebruik Railway volume mount als die beschikbaar is (data blijft dan bestaan)."""
+    volume_mount = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+    if volume_mount:
+        return Path(volume_mount)
+
+    override = os.environ.get("RECORDINGS_DIR", "").strip()
+    if override:
+        return Path(override)
+
+    return BASE_DIR / "recordings"
+
+
+RECORDINGS_DIR = resolve_recordings_dir()
+LOGS_DIR = RECORDINGS_DIR / "logs"
+LOGOS_DIR = RECORDINGS_DIR / "logos"
 DATABASE_PATH = RECORDINGS_DIR / "audiologger.db"
+STATIONS_BACKUP_PATH = RECORDINGS_DIR / "stations.backup.json"
+STATIONS_BACKUP_BAK_PATH = RECORDINGS_DIR / "stations.backup.json.bak"
 
 DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 
@@ -23,6 +41,62 @@ engine = create_engine(
     connect_args={"check_same_thread": False},
     echo=False,
 )
+
+
+def get_storage_status() -> dict:
+    backup_count = 0
+    if STATIONS_BACKUP_PATH.exists():
+        try:
+            import json
+
+            backup_count = len(json.loads(STATIONS_BACKUP_PATH.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            backup_count = -1
+
+    volume_mount = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+    on_railway = bool(os.environ.get("RAILWAY_ENVIRONMENT"))
+    persist_ok = bool(volume_mount) or not on_railway
+
+    return {
+        "recordings_dir": str(RECORDINGS_DIR),
+        "volume_mount": volume_mount or None,
+        "on_railway": on_railway,
+        "persist_ok": persist_ok,
+        "database_exists": DATABASE_PATH.exists(),
+        "database_size_kb": round(DATABASE_PATH.stat().st_size / 1024, 1)
+        if DATABASE_PATH.exists()
+        else 0,
+        "backup_exists": STATIONS_BACKUP_PATH.exists(),
+        "backup_station_count": backup_count,
+    }
+
+
+def verify_persistent_storage() -> None:
+    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+    marker = RECORDINGS_DIR / ".volume_write_test"
+    try:
+        marker.write_text("ok", encoding="utf-8")
+        marker.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.error("Cannot write to recordings dir %s: %s", RECORDINGS_DIR, exc)
+
+    status = get_storage_status()
+    if status["on_railway"] and not status["volume_mount"]:
+        logger.error(
+            "CRITICAL: RAILWAY_VOLUME_MOUNT_PATH is not set. "
+            "Stations and recordings will be LOST on every deploy. "
+            "Attach a volume to this service (mount path /app/recordings)."
+        )
+    elif status["volume_mount"]:
+        logger.info("Persistent volume mounted at %s", status["volume_mount"])
+
+    logger.info(
+        "Storage: db=%s (%s KB), backup=%s (%s zenders in backup)",
+        DATABASE_PATH,
+        status["database_size_kb"],
+        STATIONS_BACKUP_PATH,
+        status["backup_station_count"],
+    )
 
 
 def migrate_database_location() -> None:
@@ -39,6 +113,7 @@ def init_db() -> None:
     TRIMMED_DIR.mkdir(parents=True, exist_ok=True)
     LOGOS_DIR.mkdir(parents=True, exist_ok=True)
 
+    verify_persistent_storage()
     migrate_database_location()
     SQLModel.metadata.create_all(engine)
 
@@ -48,7 +123,6 @@ def init_db() -> None:
         reconcile_logos,
         restore_stations_from_backup_if_needed,
     )
-    from app.models import Station
 
     migrate_station_schema()
     restored = restore_stations_from_backup_if_needed()
@@ -59,7 +133,11 @@ def init_db() -> None:
         station_count = len(session.exec(select(Station)).all())
 
     logger.info("Database path: %s (exists=%s)", DATABASE_PATH, DATABASE_PATH.exists())
-    logger.info("Stations in database: %d%s", station_count, " (restored from backup)" if restored else "")
+    logger.info(
+        "Stations in database: %d%s",
+        station_count,
+        " (restored from backup)" if restored else "",
+    )
 
 
 def get_session():

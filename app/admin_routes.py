@@ -10,7 +10,7 @@ from sqlmodel import Session
 from pydantic import BaseModel
 
 from app.admin_auth import is_authenticated, login, logout
-from app.database import BASE_DIR, get_session
+from app.database import BASE_DIR, get_session, get_storage_status
 from app.scheduler import (
     cancel_first_recording,
     reload_scheduler,
@@ -118,6 +118,7 @@ def admin_dashboard(request: Request):
             "focus_id": request.query_params.get("focus", ""),
             "notice": request.query_params.get("notice", ""),
             "first_recording": request.query_params.get("first", ""),
+            "storage": get_storage_status(),
         },
     )
 

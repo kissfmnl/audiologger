@@ -126,6 +126,18 @@
 </div>
 {% endif %}
 
+{% if storage.on_railway and not storage.persist_ok %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-red-300 bg-red-50 text-xs text-red-800">
+    <strong>Opslag niet persistent.</strong> Railway-volume is niet gekoppeld — zenders gaan verloren bij elke deploy.
+    Ga naar Railway → Service → Settings → Volumes → mount path <code class="font-mono">/app/recordings</code>.
+</div>
+{% elif storage.backup_exists and stations|length == 0 and storage.backup_station_count > 0 %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-amber-300 bg-amber-50 text-xs text-amber-900">
+    Database is leeg maar er is een backup met {{ storage.backup_station_count }} zender(s).
+    Herstart de service om automatisch te herstellen, of voeg zenders opnieuw toe.
+</div>
+{% endif %}
+
 {# ── Nieuwe zender ── #}
 <div id="section-add" class="scroll-mt-4 mb-8 rounded-xl border border-emerald-200 bg-slate-50 shadow-card overflow-hidden">
     <div class="px-5 py-3.5 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-teal-50 flex items-center gap-2">

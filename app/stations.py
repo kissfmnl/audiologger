@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import shutil
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, available_timezones
@@ -9,13 +10,19 @@ import yaml
 from sqlmodel import Session, select
 from sqlalchemy import text
 
-from app.database import BASE_DIR, LOGOS_DIR, RECORDINGS_DIR, engine
+from app.database import (
+    BASE_DIR,
+    LOGOS_DIR,
+    RECORDINGS_DIR,
+    STATIONS_BACKUP_BAK_PATH,
+    STATIONS_BACKUP_PATH,
+    engine,
+)
 from app.models import Station
 
 logger = logging.getLogger(__name__)
 
 STATIONS_CONFIG = BASE_DIR / "config" / "stations.yaml"
-STATIONS_BACKUP_PATH = RECORDINGS_DIR / "stations.backup.json"
 STATION_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 DEFAULT_TIMEZONE = "Europe/Amsterdam"
 
@@ -193,36 +200,19 @@ def _station_backup_row(station: Station) -> dict:
     }
 
 
-def backup_stations_to_disk() -> None:
-    """Schrijf zenderconfig naar het persistente volume (backup bij elke wijziging)."""
-    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
-    with Session(engine) as session:
-        stations = session.exec(select(Station).order_by(Station.name)).all()
-        payload = [_station_backup_row(station) for station in stations]
-
-    STATIONS_BACKUP_PATH.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    logger.info("Station backup saved (%d zenders) -> %s", len(payload), STATIONS_BACKUP_PATH)
-
-
-def restore_stations_from_backup_if_needed() -> int:
-    """Herstel zenders uit backup als de database leeg is (bijv. na volume-reset)."""
-    with Session(engine) as session:
-        if session.exec(select(Station)).first():
-            return 0
-
-    if not STATIONS_BACKUP_PATH.exists():
-        logger.warning("Database has no stations and no backup file at %s", STATIONS_BACKUP_PATH)
-        return 0
-
+def _load_backup_payload(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
     try:
-        payload = json.loads(STATIONS_BACKUP_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        logger.error("Could not read station backup: %s", exc)
-        return 0
+        logger.error("Could not read station backup %s: %s", path, exc)
+        return []
+    return payload if isinstance(payload, list) else []
 
+
+def _restore_from_backup_file(path: Path) -> int:
+    payload = _load_backup_payload(path)
     if not payload:
         return 0
 
@@ -246,8 +236,53 @@ def restore_stations_from_backup_if_needed() -> int:
             )
         session.commit()
 
-    logger.warning("Restored %d stations from backup", len(payload))
+    logger.warning("Restored %d stations from backup %s", len(payload), path)
     return len(payload)
+
+
+def backup_stations_to_disk(*, allow_empty: bool = False) -> None:
+    """Schrijf zenderconfig naar het persistente volume (backup bij elke wijziging)."""
+    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+    with Session(engine) as session:
+        stations = session.exec(select(Station).order_by(Station.name)).all()
+        payload = [_station_backup_row(station) for station in stations]
+
+    if not payload and not allow_empty:
+        existing = _load_backup_payload(STATIONS_BACKUP_PATH)
+        if existing:
+            logger.warning(
+                "Refusing to overwrite backup with empty list (%d zenders in bestaande backup)",
+                len(existing),
+            )
+            return
+
+    if STATIONS_BACKUP_PATH.exists():
+        shutil.copy2(STATIONS_BACKUP_PATH, STATIONS_BACKUP_BAK_PATH)
+
+    STATIONS_BACKUP_PATH.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    logger.info("Station backup saved (%d zenders) -> %s", len(payload), STATIONS_BACKUP_PATH)
+
+
+def restore_stations_from_backup_if_needed() -> int:
+    """Herstel zenders uit backup als de database leeg is (bijv. na volume-reset)."""
+    with Session(engine) as session:
+        if session.exec(select(Station)).first():
+            return 0
+
+    for path in (STATIONS_BACKUP_PATH, STATIONS_BACKUP_BAK_PATH):
+        restored = _restore_from_backup_file(path)
+        if restored:
+            backup_stations_to_disk(allow_empty=False)
+            return restored
+
+    logger.warning(
+        "Database has no stations and no usable backup at %s",
+        STATIONS_BACKUP_PATH,
+    )
+    return 0
 
 
 def ensure_stations_backup_exists() -> None:
@@ -538,7 +573,7 @@ def delete_station(session: Session, station_id: str) -> None:
 
     session.delete(station)
     session.commit()
-    backup_stations_to_disk()
+    backup_stations_to_disk(allow_empty=True)
 
 
 def save_station_logo(station_id: str, image_bytes: bytes) -> str:
