@@ -294,9 +294,13 @@ def validate_station_id(station_id: str) -> None:
         raise ValueError("ID mag alleen kleine letters, cijfers en underscores bevatten")
 
 
-def validate_url(url: str) -> None:
+def normalize_url(url: str) -> str:
+    url = url.strip()
+    if not url:
+        raise ValueError("Stream-URL is verplicht")
     if not url.startswith(("http://", "https://")):
-        raise ValueError("Stream-URL moet beginnen met http:// of https://")
+        url = f"https://{url}"
+    return url
 
 
 def validate_country(country: str) -> str:
@@ -364,7 +368,7 @@ def create_station(
     active: bool = True,
 ) -> Station:
     validate_station_id(station_id)
-    validate_url(url)
+    url = normalize_url(url)
     country = validate_country(country)
     timezone = validate_timezone(timezone)
     is_event, event_start_date, event_end_date = parse_event_dates(
@@ -381,7 +385,7 @@ def create_station(
         country=country,
         flag=info["flag"],
         timezone=timezone,
-        url=url.strip(),
+        url=url,
         schedule_hours="*",
         is_event=is_event,
         event_start_date=event_start_date,
@@ -410,7 +414,7 @@ def update_station(
     if not station:
         raise ValueError("Zender niet gevonden")
 
-    validate_url(url)
+    url = normalize_url(url)
     country = validate_country(country)
     timezone = validate_timezone(timezone)
     is_event, event_start_date, event_end_date = parse_event_dates(
@@ -422,7 +426,7 @@ def update_station(
     station.country = country
     station.flag = info["flag"]
     station.timezone = timezone
-    station.url = url.strip()
+    station.url = url
     station.schedule_hours = "*"
     station.is_event = is_event
     station.event_start_date = event_start_date
