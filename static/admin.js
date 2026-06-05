@@ -3,7 +3,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initCountrySelects();
     initEventToggles();
     initLogoModal();
+    initDeleteButtons();
     scrollToFocus();
+    hideDeleteToast();
 });
 
 function initSidebarNav() {
@@ -56,6 +58,42 @@ function initEventToggles() {
 
         toggle.addEventListener('change', sync);
         sync();
+    });
+}
+
+function hideDeleteToast() {
+    const toast = document.getElementById('delete-toast');
+    if (!toast) return;
+    setTimeout(() => toast.remove(), 3000);
+}
+
+function initDeleteButtons() {
+    document.querySelectorAll('.delete-station-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const stationId = btn.dataset.stationId;
+            const row = document.getElementById(`station-${stationId}`);
+            btn.disabled = true;
+            btn.textContent = '…';
+
+            try {
+                const response = await fetch(`/admin/stations/${stationId}/delete`, {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'fetch' },
+                });
+                if (!response.ok) {
+                    throw new Error('Verwijderen mislukt');
+                }
+                if (row) {
+                    row.style.opacity = '0';
+                    row.style.transition = 'opacity 0.2s';
+                    setTimeout(() => row.remove(), 200);
+                }
+            } catch (err) {
+                btn.disabled = false;
+                btn.textContent = '×';
+                alert(err.message);
+            }
+        });
     });
 }
 

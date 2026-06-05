@@ -3,13 +3,18 @@ import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session
 
 from app.admin_auth import is_authenticated, login, logout
 from app.database import BASE_DIR, get_session
-from app.scheduler import get_scheduler_jobs, reload_scheduler
+from app.scheduler import (
+    cancel_first_recording,
+    get_scheduler_jobs,
+    reload_scheduler,
+    schedule_first_recording,
+)
 from app.stations import (
     COUNTRIES,
     create_station,
@@ -41,10 +46,21 @@ def admin_redirect_if_needed(request: Request):
     return None
 
 
-def admin_url(focus: str | None = None) -> str:
+def admin_url(
+    focus: str | None = None,
+    notice: str | None = None,
+    first: str | None = None,
+) -> str:
+    params = []
     if focus:
-        return f"/admin?focus={focus}"
-    return "/admin"
+        params.append(f"focus={focus}")
+    if notice:
+        params.append(f"notice={notice}")
+    if first:
+        params.append(f"first={first}")
+    if not params:
+        return "/admin"
+    return f"/admin?{'&'.join(params)}"
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -92,6 +108,8 @@ def admin_dashboard(request: Request):
             "date_label": format_dutch_date(),
             "active_nav": "stations",
             "focus_id": request.query_params.get("focus", ""),
+            "notice": request.query_params.get("notice", ""),
+            "first_recording": request.query_params.get("first", ""),
         },
     )
 
@@ -115,6 +133,7 @@ def admin_create_station(
         return redirect
 
     station_id = station_id.strip().lower()
+    first_run = None
     try:
         create_station(
             session,
@@ -130,10 +149,18 @@ def admin_create_station(
         if logo_data:
             _save_logo_from_data_url(station_id, logo_data)
         reload_scheduler()
+        first_run = schedule_first_recording(station_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return RedirectResponse(url=admin_url(station_id), status_code=303)
+    return RedirectResponse(
+        url=admin_url(
+            station_id,
+            notice="added",
+            first=first_run.strftime("%H:%M") if first_run else None,
+        ),
+        status_code=303,
+    )
 
 
 @router.post("/stations/{station_id}/edit")
@@ -187,11 +214,15 @@ def admin_delete_station(
 
     try:
         delete_station(session, station_id)
+        cancel_first_recording(station_id)
         reload_scheduler()
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    return RedirectResponse(url="/admin", status_code=303)
+    if request.headers.get("X-Requested-With") == "fetch":
+        return JSONResponse({"ok": True, "id": station_id})
+
+    return RedirectResponse(url=admin_url(notice="deleted"), status_code=303)
 
 
 @router.post("/stations/{station_id}/logo")

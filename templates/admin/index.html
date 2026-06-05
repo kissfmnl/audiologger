@@ -29,6 +29,16 @@
     <p class="text-sm text-muted">{{ date_label }} · opname elk heel uur in lokale tijdzone</p>
 </div>
 
+{% if notice == 'added' %}
+<div class="mb-4 px-4 py-3 rounded-xl bg-purple-50 border border-purple-100 text-sm text-purple-700">
+    Zender toegevoegd.{% if first_recording %} Eerste opname om <strong>{{ first_recording }}</strong> (lokale tijd).{% endif %}
+</div>
+{% elif notice == 'deleted' %}
+<div id="delete-toast" class="mb-4 px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm text-body">
+    Zender verwijderd.
+</div>
+{% endif %}
+
 <form id="form-new" method="post" action="/admin/stations" class="hidden" enctype="multipart/form-data"></form>
 
 <div id="section-stations" class="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden mb-6 scroll-mt-6">
@@ -149,10 +159,10 @@
                     <td class="px-3 py-2 align-top">
                         <div class="flex gap-1">
                             <button form="form-{{ station.id }}" type="submit" class="flex-1 py-1.5 rounded-lg bg-purple-100 text-purple-700 text-xs font-medium hover:bg-purple-600 hover:text-white">Opslaan</button>
-                            <form method="post" action="/admin/stations/{{ station.id }}/delete"
-                                  onsubmit="return confirm('{{ station.name }} verwijderen?');">
-                                <button type="submit" class="px-2 py-1.5 rounded-lg text-red-500 hover:bg-red-50 text-xs" title="Verwijderen">×</button>
-                            </form>
+                            <button type="button"
+                                    class="delete-station-btn px-2 py-1.5 rounded-lg text-red-500 hover:bg-red-50 text-xs font-bold"
+                                    data-station-id="{{ station.id }}"
+                                    title="Verwijderen">×</button>
                         </div>
                     </td>
                 </tr>
