@@ -63,11 +63,11 @@
         {% endif %}
     </div>
 
-    {% if not overview.items %}
+    {% if not overview.rows %}
     <p class="p-8 text-center text-sm text-slate-500">Geen zenders. <a href="/admin#section-add" class="text-violet-600 hover:underline">Voeg een zender toe</a>.</p>
     {% else %}
     <div class="divide-y divide-violet-50">
-        {% for row in overview.items %}
+        {% for row in overview.rows %}
         {% set station = row.station %}
         <div class="px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3 {% if row.state in ('error', 'warning') %}bg-red-50/40{% elif row.state == 'pending' %}bg-amber-50/30{% endif %}">
             <div class="flex items-center gap-3 min-w-0 flex-1">

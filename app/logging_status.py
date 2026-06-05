@@ -46,7 +46,7 @@ def get_logging_overview() -> dict:
         if recording.station_id not in last_by_station:
             last_by_station[recording.station_id] = recording
 
-    items = []
+    rows = []
     logging_count = 0
     skipped_count = 0
     issue_count = 0
@@ -79,7 +79,7 @@ def get_logging_overview() -> dict:
             state = "skipped"
             detail = reason or "Wordt niet opgenomen"
 
-        items.append(
+        rows.append(
             {
                 "station": station,
                 "state": state,
@@ -92,10 +92,10 @@ def get_logging_overview() -> dict:
             }
         )
 
-    items.sort(key=lambda row: (0 if row["state"] in ("error", "warning") else 1, row["station"]["name"]))
+    rows.sort(key=lambda row: (0 if row["state"] in ("error", "warning") else 1, row["station"]["name"]))
 
     return {
-        "items": items,
+        "rows": rows,
         "logging_count": logging_count,
         "skipped_count": skipped_count,
         "issue_count": issue_count,
