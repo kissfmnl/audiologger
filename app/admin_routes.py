@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.admin_auth import is_authenticated, login, logout
 from app.database import BASE_DIR, get_session, get_storage_status
+from app.logging_status import get_logging_overview
 from app.scheduler import (
     cancel_first_recording,
     reload_scheduler,
@@ -73,7 +74,7 @@ def admin_url(
 @router.get("/login", response_class=HTMLResponse)
 def admin_login_page(request: Request):
     if is_authenticated(request):
-        return RedirectResponse(url="/admin", status_code=303)
+        return RedirectResponse(url="/admin/logging", status_code=303)
     show_error = request.query_params.get("error") == "1"
     return templates.TemplateResponse(
         request,
@@ -89,7 +90,7 @@ def admin_login_submit(
     password: str = Form(...),
 ):
     if login(request, username, password):
-        return RedirectResponse(url="/admin", status_code=303)
+        return RedirectResponse(url="/admin/logging", status_code=303)
     return RedirectResponse(url="/admin/login?error=1", status_code=303)
 
 
@@ -97,6 +98,25 @@ def admin_login_submit(
 def admin_logout(request: Request):
     logout(request)
     return RedirectResponse(url="/admin/login", status_code=303)
+
+
+@router.get("/logging", response_class=HTMLResponse)
+def admin_logging_status(request: Request):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    overview = get_logging_overview()
+    return templates.TemplateResponse(
+        request,
+        "admin/logging.html",
+        {
+            "overview": overview,
+            "date_label": format_dutch_date(),
+            "active_nav": "logging",
+            "storage": get_storage_status(),
+        },
+    )
 
 
 @router.get("", response_class=HTMLResponse)

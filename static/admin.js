@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    initSidebarNav();
+    initStationCollapsible();
     initEditMode();
     initCountrySelects();
     initEventToggles();
@@ -9,20 +9,28 @@ document.addEventListener('DOMContentLoaded', () => {
     hideDeleteToast();
 });
 
-function initSidebarNav() {
-    document.querySelectorAll('[data-scroll-target]').forEach((btn) => {
-        btn.addEventListener('click', (event) => {
-            event.preventDefault();
-            const target = document.getElementById(btn.dataset.scrollTarget);
-            if (target) {
-                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+function initStationCollapsible() {
+    document.querySelectorAll('.station-collapse-toggle').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const card = btn.closest('.station-card');
+            if (!card || card.classList.contains('is-editing')) return;
+            card.classList.toggle('is-collapsed');
+        });
+    });
+
+    document.getElementById('expand-all-stations')?.addEventListener('click', () => {
+        document.querySelectorAll('.station-card').forEach((card) => {
+            if (!card.classList.contains('is-editing')) {
+                card.classList.remove('is-collapsed');
             }
-            document.querySelectorAll('[data-scroll-target]').forEach((el) => {
-                el.classList.remove('bg-accent-light', 'text-accent-muted', 'border-accent-border');
-                el.classList.add('text-slate-600', 'border-transparent');
-            });
-            btn.classList.add('bg-accent-light', 'text-accent-muted', 'border-accent-border');
-            btn.classList.remove('text-slate-600', 'border-transparent');
+        });
+    });
+
+    document.getElementById('collapse-all-stations')?.addEventListener('click', () => {
+        document.querySelectorAll('.station-card').forEach((card) => {
+            if (!card.classList.contains('is-editing')) {
+                card.classList.add('is-collapsed');
+            }
         });
     });
 }
@@ -35,11 +43,13 @@ function initEditMode() {
         card.querySelector('.station-view')?.classList.remove('hidden');
         card.querySelector('.station-edit')?.classList.add('hidden');
         card.classList.remove('is-editing');
+        card.classList.add('is-collapsed');
         if (openCard === card) openCard = null;
     };
 
     const openEdit = (card) => {
         if (openCard && openCard !== card) closeEdit(openCard);
+        card.classList.remove('is-collapsed');
         card.querySelector('.station-view')?.classList.add('hidden');
         card.querySelector('.station-edit')?.classList.remove('hidden');
         card.classList.add('is-editing');
@@ -143,6 +153,7 @@ function scrollToFocus() {
     if (!focusId) return;
     const card = document.getElementById(`station-${focusId}`);
     if (card) {
+        card.classList.remove('is-collapsed');
         requestAnimationFrame(() => card.scrollIntoView({ behavior: 'smooth', block: 'center' }));
     }
 }

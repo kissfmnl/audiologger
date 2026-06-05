@@ -59,21 +59,31 @@
                     <p class="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-violet-300">Radio</p>
                     <ul class="space-y-0.5">
                         <li>
-                            <button type="button" data-scroll-target="section-add"
-                                    class="nav-item w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition text-left text-slate-600 hover:bg-violet-50 border border-transparent">
-                                <span class="w-5 h-5 rounded-md bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold">+</span>
-                                Toevoegen
-                            </button>
+                            <a href="/admin/logging"
+                               class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition border
+                               {% if active_nav == 'logging' %}bg-accent-light text-accent-muted border-accent-border{% else %}text-slate-600 hover:bg-violet-50 border-transparent{% endif %}">
+                                <svg class="w-4 h-4 shrink-0 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                Opname-status
+                            </a>
                         </li>
                         <li>
-                            <button type="button" data-scroll-target="section-stations"
-                                    class="nav-item w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition text-left
-                                    {% if active_nav == 'stations' %}bg-accent-light text-accent-muted border border-accent-border{% else %}text-slate-600 hover:bg-violet-50 border border-transparent{% endif %}">
+                            <a href="/admin#section-add"
+                               class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-violet-50 transition border border-transparent">
+                                <span class="w-5 h-5 rounded-md bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold">+</span>
+                                Toevoegen
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/admin#section-stations"
+                               class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition border
+                               {% if active_nav == 'stations' %}bg-accent-light text-accent-muted border-accent-border{% else %}text-slate-600 hover:bg-violet-50 border-transparent{% endif %}">
                                 <svg class="w-4 h-4 shrink-0 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
                                 </svg>
                                 Zenders
-                            </button>
+                            </a>
                         </li>
                     </ul>
                 </div>

@@ -1,0 +1,117 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Opname-status — AudioLogger{% endblock %}
+
+{% block head %}
+<style>
+    .status-badge-logging { background: #d1fae5; color: #047857; }
+    .status-badge-pending { background: #fef3c7; color: #b45309; }
+    .status-badge-error { background: #fee2e2; color: #b91c1c; }
+    .status-badge-warning { background: #ffedd5; color: #c2410c; }
+    .status-badge-skipped { background: #f1f5f9; color: #64748b; }
+    .status-badge {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        padding: 0.2rem 0.55rem;
+        border-radius: 9999px;
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <p class="text-xs font-medium text-violet-400 mb-1">Radio</p>
+    <h1 class="text-xl font-bold text-heading tracking-tight">Opname-status</h1>
+    <p class="text-xs text-slate-500 mt-1">{{ date_label }} · welke zenders worden nu gelogd</p>
+</div>
+
+{% if storage.on_railway and not storage.persist_ok %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-red-300 bg-red-50 text-xs text-red-800">
+    <strong>Opslag niet persistent.</strong> Railway-volume is niet gekoppeld — zenders gaan verloren bij elke deploy.
+</div>
+{% endif %}
+
+{% if overview.issue_count > 0 %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-amber-300 bg-amber-50 text-xs text-amber-900">
+    <strong>{{ overview.issue_count }} aandachtspunt(en)</strong> — controleer de gemarkeerde zenders hieronder.
+</div>
+{% endif %}
+
+<div class="grid grid-cols-3 gap-3 mb-6">
+    <div class="rounded-xl border border-emerald-200 bg-emerald-50/80 p-4 text-center">
+        <p class="text-2xl font-bold text-emerald-700">{{ overview.logging_count }}</p>
+        <p class="text-[11px] font-medium text-emerald-800 mt-0.5">Wordt gelogd</p>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
+        <p class="text-2xl font-bold text-slate-600">{{ overview.skipped_count }}</p>
+        <p class="text-[11px] font-medium text-slate-500 mt-0.5">Niet gelogd</p>
+    </div>
+    <div class="rounded-xl border border-violet-200 bg-violet-50/80 p-4 text-center">
+        <p class="text-2xl font-bold text-violet-700">{{ overview.total }}</p>
+        <p class="text-[11px] font-medium text-violet-600 mt-0.5">Totaal zenders</p>
+    </div>
+</div>
+
+<div class="rounded-xl border border-violet-100 bg-slate-50 shadow-card overflow-hidden">
+    <div class="px-4 py-3 border-b border-violet-100 bg-violet-50/50 flex items-center justify-between gap-3">
+        <h2 class="text-xs font-semibold text-heading uppercase tracking-wide">Zenderoverzicht</h2>
+        {% if overview.scheduler_running %}
+        <span class="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Scheduler actief</span>
+        {% else %}
+        <span class="text-[10px] font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Scheduler uit</span>
+        {% endif %}
+    </div>
+
+    {% if not overview.items %}
+    <p class="p-8 text-center text-sm text-slate-500">Geen zenders. <a href="/admin#section-add" class="text-violet-600 hover:underline">Voeg een zender toe</a>.</p>
+    {% else %}
+    <div class="divide-y divide-violet-50">
+        {% for row in overview.items %}
+        {% set station = row.station %}
+        <div class="px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3 {% if row.state in ('error', 'warning') %}bg-red-50/40{% elif row.state == 'pending' %}bg-amber-50/30{% endif %}">
+            <div class="flex items-center gap-3 min-w-0 flex-1">
+                {% if station.logo_url %}
+                <img src="{{ station.logo_url }}?v={{ station.id }}" alt="" class="w-10 h-10 rounded-lg object-cover border border-gray-200 bg-gray-100 shrink-0">
+                {% else %}
+                <span class="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center text-lg shrink-0">{{ station.flag }}</span>
+                {% endif %}
+                <div class="min-w-0">
+                    <p class="font-semibold text-heading text-sm truncate">{{ station.name }}</p>
+                    <p class="text-[11px] text-violet-400 font-mono truncate">{{ station.id }}</p>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 sm:justify-end">
+                {% if row.state == 'logging' %}
+                <span class="status-badge status-badge-logging">Wordt gelogd</span>
+                {% elif row.state == 'pending' %}
+                <span class="status-badge status-badge-pending">Wacht op opname</span>
+                {% elif row.state == 'error' %}
+                <span class="status-badge status-badge-error">Fout</span>
+                {% elif row.state == 'warning' %}
+                <span class="status-badge status-badge-warning">Probleem</span>
+                {% else %}
+                <span class="status-badge status-badge-skipped">Niet gelogd</span>
+                {% endif %}
+            </div>
+
+            <div class="sm:w-56 text-xs text-slate-500 shrink-0">
+                <p>{{ row.detail }}</p>
+            </div>
+
+            <div class="sm:w-36 text-xs text-slate-400 shrink-0 sm:text-right">
+                <p>Volgende: <span class="text-slate-600 font-mono">{{ row.next_run }}</span></p>
+                <p>Laatste: <span class="text-slate-600 font-mono">{{ row.last_time }}</span>
+                    {% if row.last_status == 'failed' %}<span class="text-red-600">✗</span>
+                    {% elif row.last_status == 'completed' %}<span class="text-emerald-600">✓</span>{% endif %}
+                </p>
+            </div>
+
+            <a href="/admin?focus={{ station.id }}" class="text-xs font-medium text-violet-600 hover:text-violet-800 shrink-0">Bewerken →</a>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
