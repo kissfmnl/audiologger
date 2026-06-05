@@ -54,23 +54,23 @@
                     <p class="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-faint">Radio</p>
                     <ul class="space-y-1">
                         <li>
-                            <a href="/admin"
-                               class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition
-                               {% if active_nav == 'stations' %}bg-purple-100 text-purple-700{% else %}text-body hover:bg-gray-50{% endif %}">
+                            <button type="button" data-scroll-target="section-stations"
+                                    class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition text-left
+                                    {% if active_nav == 'stations' %}bg-purple-100 text-purple-700{% else %}text-body hover:bg-gray-50{% endif %}">
                                 <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
                                 </svg>
                                 Zenders beheren
-                            </a>
+                            </button>
                         </li>
                         <li>
-                            <a href="/admin#scheduler"
-                               class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-body hover:bg-gray-50 transition">
+                            <button type="button" data-scroll-target="section-scheduler"
+                                    class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-body hover:bg-gray-50 transition text-left">
                                 <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                 </svg>
                                 Scheduler
-                            </a>
+                            </button>
                         </li>
                     </ul>
                 </div>

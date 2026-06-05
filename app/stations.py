@@ -1,9 +1,12 @@
 import logging
 import re
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import yaml
 from sqlmodel import Session, select
+from sqlalchemy import text
 
 from app.database import BASE_DIR, LOGOS_DIR, engine
 from app.models import Station
@@ -13,36 +16,42 @@ logger = logging.getLogger(__name__)
 STATIONS_CONFIG = BASE_DIR / "config" / "stations.yaml"
 STATION_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 
-COUNTRY_FLAGS = {
-    "NL": "🇳🇱",
-    "BE": "🇧🇪",
-    "DE": "🇩🇪",
-    "US": "🇺🇸",
-    "UK": "🇬🇧",
-    "FR": "🇫🇷",
-}
+COUNTRIES = [
+    {"code": "NL", "name": "Nederland", "flag": "🇳🇱", "timezone": "Europe/Amsterdam", "city": "Amsterdam"},
+    {"code": "BE", "name": "België", "flag": "🇧🇪", "timezone": "Europe/Brussels", "city": "Brussel"},
+    {"code": "DE", "name": "Duitsland", "flag": "🇩🇪", "timezone": "Europe/Berlin", "city": "Berlin"},
+    {"code": "FR", "name": "Frankrijk", "flag": "🇫🇷", "timezone": "Europe/Paris", "city": "Parijs"},
+    {"code": "UK", "name": "Verenigd Koninkrijk", "flag": "🇬🇧", "timezone": "Europe/London", "city": "Londen"},
+    {"code": "US", "name": "Verenigde Staten (ET)", "flag": "🇺🇸", "timezone": "America/New_York", "city": "New York"},
+]
+
+COUNTRY_MAP = {c["code"]: c for c in COUNTRIES}
 
 
-def parse_cron_to_hours(cron: str) -> str:
-    parts = cron.strip().split()
-    if len(parts) != 5:
-        return "*"
-    hour = parts[1]
-    return "*" if hour == "*" else hour
+def get_country_info(country_code: str) -> dict:
+    code = country_code.upper()
+    return COUNTRY_MAP.get(code, COUNTRY_MAP["NL"])
 
 
-def hours_to_cron(hours: str) -> str:
-    cleaned = hours.strip()
-    if not cleaned or cleaned == "*":
-        return "0 * * * *"
-    return f"0 {cleaned} * * *"
+def flag_for_country(country_code: str) -> str:
+    return get_country_info(country_code)["flag"]
 
 
-def format_schedule_label(hours: str) -> str:
-    if hours.strip() == "*":
-        return "Elk heel uur"
-    hour_list = [h.strip() for h in hours.split(",") if h.strip()]
-    return ", ".join(f"{h}:00" for h in sorted(hour_list, key=lambda x: int(x)))
+def timezone_for_country(country_code: str) -> str:
+    return get_country_info(country_code)["timezone"]
+
+
+def hours_to_cron(hours: str = "*") -> str:
+    return "0 * * * *"
+
+
+def format_schedule_label(station: dict) -> str:
+    if station.get("is_event"):
+        start = station.get("event_start_date") or "—"
+        end = station.get("event_end_date") or "—"
+        return f"Evenement · {start} t/m {end}"
+    tz = station.get("timezone", "Europe/Amsterdam")
+    return f"Hele dag · elk uur ({tz})"
 
 
 def station_to_dict(station: Station) -> dict:
@@ -52,19 +61,65 @@ def station_to_dict(station: Station) -> dict:
         if logo_path.exists():
             logo_url = f"/logos/{logo_path.name}"
 
-    return {
+    country = station.country.upper()
+    info = get_country_info(country)
+
+    data = {
         "id": station.id,
         "name": station.name,
-        "country": station.country.upper(),
-        "flag": station.flag or COUNTRY_FLAGS.get(station.country.upper(), "📻"),
+        "country": country,
+        "flag": info["flag"],
+        "timezone": station.timezone or info["timezone"],
+        "country_name": info["name"],
+        "country_city": info["city"],
         "url": station.url,
-        "schedule_hours": station.schedule_hours,
-        "schedule_cron": hours_to_cron(station.schedule_hours),
-        "schedule_label": format_schedule_label(station.schedule_hours),
+        "schedule_hours": "*",
+        "schedule_cron": hours_to_cron(),
+        "is_event": station.is_event,
+        "event_start_date": station.event_start_date or "",
+        "event_end_date": station.event_end_date or "",
         "active": station.active,
         "logo_path": station.logo_path,
         "logo_url": logo_url,
     }
+    data["schedule_label"] = format_schedule_label(data)
+    return data
+
+
+def migrate_station_schema() -> None:
+    columns = {
+        "timezone": "TEXT DEFAULT 'Europe/Amsterdam'",
+        "is_event": "INTEGER DEFAULT 0",
+        "event_start_date": "TEXT",
+        "event_end_date": "TEXT",
+    }
+
+    with engine.connect() as conn:
+        existing = {
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(station)")).fetchall()
+        }
+        for name, definition in columns.items():
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE station ADD COLUMN {name} {definition}"))
+        conn.commit()
+
+    with Session(engine) as session:
+        stations = session.exec(select(Station)).all()
+        changed = False
+        for station in stations:
+            info = get_country_info(station.country)
+            if station.timezone != info["timezone"]:
+                station.timezone = info["timezone"]
+                changed = True
+            if station.flag != info["flag"]:
+                station.flag = info["flag"]
+                changed = True
+            if station.schedule_hours != "*":
+                station.schedule_hours = "*"
+                changed = True
+        if changed:
+            session.commit()
 
 
 def seed_stations_from_yaml() -> None:
@@ -75,19 +130,20 @@ def seed_stations_from_yaml() -> None:
         data = yaml.safe_load(f) or {}
 
     with Session(engine) as session:
-        existing = session.exec(select(Station)).first()
-        if existing:
+        if session.exec(select(Station)).first():
             return
 
         for item in data.get("stations", []):
             country = item.get("country", "NL").upper()
+            info = get_country_info(country)
             station = Station(
                 id=item["id"],
                 name=item["name"],
                 country=country,
-                flag=item.get("flag") or COUNTRY_FLAGS.get(country, "📻"),
+                flag=info["flag"],
+                timezone=info["timezone"],
                 url=item["url"],
-                schedule_hours=parse_cron_to_hours(item.get("schedule", "0 * * * *")),
+                schedule_hours="*",
                 active=item.get("active", True),
             )
             session.add(station)
@@ -125,29 +181,59 @@ def validate_url(url: str) -> None:
         raise ValueError("Stream-URL moet beginnen met http:// of https://")
 
 
-def normalize_hours(hours: str | list[str] | None) -> str:
-    if hours is None or hours == "*" or hours == ["*"]:
-        return "*"
-    if isinstance(hours, str):
-        if hours.strip() == "*":
-            return "*"
-        parts = [h.strip() for h in hours.split(",") if h.strip()]
-    else:
-        parts = [str(h).strip() for h in hours if str(h).strip()]
+def validate_country(country: str) -> str:
+    code = country.upper()
+    if code not in COUNTRY_MAP:
+        raise ValueError("Kies een geldig land uit de lijst")
+    return code
 
-    if not parts:
-        return "*"
 
-    normalized: list[str] = []
-    for part in parts:
-        hour = int(part)
-        if hour < 0 or hour > 23:
-            raise ValueError("Uren moeten tussen 0 en 23 liggen")
-        if str(hour) not in normalized:
-            normalized.append(str(hour))
+def parse_event_dates(
+    is_event: bool,
+    event_start: str | None,
+    event_end: str | None,
+) -> tuple[bool, str | None, str | None]:
+    if not is_event:
+        return False, None, None
 
-    normalized.sort(key=int)
-    return ",".join(normalized)
+    if not event_start or not event_end:
+        raise ValueError("Evenementzenders vereisen een start- en einddatum")
+
+    try:
+        start = date.fromisoformat(event_start)
+        end = date.fromisoformat(event_end)
+    except ValueError as exc:
+        raise ValueError("Ongeldige datum (gebruik JJJJ-MM-DD)") from exc
+
+    if end < start:
+        raise ValueError("Einddatum moet na startdatum liggen")
+
+    return True, start.isoformat(), end.isoformat()
+
+
+def should_record_station(station: dict, moment: datetime | None = None) -> bool:
+    if not station.get("active", True):
+        return False
+
+    tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
+    now = moment.astimezone(tz) if moment and moment.tzinfo else datetime.now(tz)
+
+    if station.get("is_event"):
+        start_raw = station.get("event_start_date")
+        end_raw = station.get("event_end_date")
+        if not start_raw or not end_raw:
+            return False
+        today = now.date()
+        return date.fromisoformat(start_raw) <= today <= date.fromisoformat(end_raw)
+
+    return True
+
+
+def recording_start_time(station: dict, moment: datetime | None = None) -> datetime:
+    tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
+    now = moment.astimezone(tz) if moment and moment.tzinfo else datetime.now(tz)
+    local = now.replace(minute=0, second=0, microsecond=0)
+    return local.replace(tzinfo=None)
 
 
 def create_station(
@@ -156,24 +242,33 @@ def create_station(
     name: str,
     country: str,
     url: str,
-    schedule_hours: str | list[str] | None = "*",
-    flag: str | None = None,
+    is_event: bool = False,
+    event_start_date: str | None = None,
+    event_end_date: str | None = None,
     active: bool = True,
 ) -> Station:
     validate_station_id(station_id)
     validate_url(url)
+    country = validate_country(country)
+    is_event, event_start_date, event_end_date = parse_event_dates(
+        is_event, event_start_date, event_end_date
+    )
 
     if session.get(Station, station_id):
         raise ValueError(f"Zender met ID '{station_id}' bestaat al")
 
-    country = country.upper()
+    info = get_country_info(country)
     station = Station(
         id=station_id,
         name=name.strip(),
         country=country,
-        flag=flag or COUNTRY_FLAGS.get(country, "📻"),
+        flag=info["flag"],
+        timezone=info["timezone"],
         url=url.strip(),
-        schedule_hours=normalize_hours(schedule_hours),
+        schedule_hours="*",
+        is_event=is_event,
+        event_start_date=event_start_date,
+        event_end_date=event_end_date,
         active=active,
     )
     session.add(station)
@@ -188,8 +283,9 @@ def update_station(
     name: str,
     country: str,
     url: str,
-    schedule_hours: str | list[str] | None,
-    flag: str | None,
+    is_event: bool,
+    event_start_date: str | None,
+    event_end_date: str | None,
     active: bool,
 ) -> Station:
     station = session.get(Station, station_id)
@@ -197,13 +293,21 @@ def update_station(
         raise ValueError("Zender niet gevonden")
 
     validate_url(url)
-    country = country.upper()
+    country = validate_country(country)
+    is_event, event_start_date, event_end_date = parse_event_dates(
+        is_event, event_start_date, event_end_date
+    )
+    info = get_country_info(country)
 
     station.name = name.strip()
     station.country = country
-    station.flag = flag or COUNTRY_FLAGS.get(country, "📻")
+    station.flag = info["flag"]
+    station.timezone = info["timezone"]
     station.url = url.strip()
-    station.schedule_hours = normalize_hours(schedule_hours)
+    station.schedule_hours = "*"
+    station.is_event = is_event
+    station.event_start_date = event_start_date
+    station.event_end_date = event_end_date
     station.active = active
 
     session.add(station)

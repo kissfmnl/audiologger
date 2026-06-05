@@ -52,7 +52,7 @@
                     {% endif %}
                     <div>
                         <h2 class="text-lg font-semibold text-heading">{{ station.name }}</h2>
-                        <p class="text-sm text-muted">{{ station.country }}</p>
+                        <p class="text-sm text-muted">{{ station.country_name | default(station.country) }} · {{ station.timezone | default('Europe/Amsterdam') }}</p>
                     </div>
                 </div>
                 {% if station.active %}

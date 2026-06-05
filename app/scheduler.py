@@ -1,18 +1,23 @@
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.recorder import record_station
-from app.stations import hours_to_cron, load_stations
+from app.stations import load_stations, recording_start_time, should_record_station
 
 logger = logging.getLogger(__name__)
 scheduler = BackgroundScheduler()
 
 
 def scheduled_record(station: dict) -> None:
-    start_time = datetime.now().replace(minute=0, second=0, microsecond=0)
+    if not should_record_station(station):
+        logger.info("Skipped recording for %s (outside schedule/event window)", station["id"])
+        return
+
+    start_time = recording_start_time(station)
     try:
         recording = record_station(station, start_time)
         logger.info(
@@ -35,34 +40,23 @@ def reload_scheduler() -> BackgroundScheduler:
         scheduler.start()
 
     for station in stations:
-        cron_expr = hours_to_cron(station["schedule_hours"])
-        parts = cron_expr.split()
-        if len(parts) != 5:
-            logger.error(
-                "Invalid cron expression for %s: %s",
-                station["id"],
-                cron_expr,
-            )
-            continue
-
-        minute, hour, day, month, day_of_week = parts
+        tz_name = station.get("timezone", "Europe/Amsterdam")
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            logger.error("Invalid timezone for %s: %s", station["id"], tz_name)
+            tz = ZoneInfo("Europe/Amsterdam")
 
         scheduler.add_job(
             scheduled_record,
-            trigger=CronTrigger(
-                minute=minute,
-                hour=hour,
-                day=day,
-                month=month,
-                day_of_week=day_of_week,
-            ),
+            trigger=CronTrigger(minute=0, hour="*", timezone=tz),
             args=[station],
             id=f"record_{station['id']}",
             replace_existing=True,
             misfire_grace_time=300,
         )
         logger.info(
-            "Scheduled %s (%s) at whole hours: %s",
+            "Scheduled %s (%s) — %s",
             station["name"],
             station["id"],
             station["schedule_label"],

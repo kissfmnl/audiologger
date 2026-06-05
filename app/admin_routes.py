@@ -11,9 +11,9 @@ from app.admin_auth import is_authenticated, login, logout
 from app.database import BASE_DIR, get_session
 from app.scheduler import get_scheduler_jobs, reload_scheduler
 from app.stations import (
+    COUNTRIES,
     create_station,
     delete_station,
-    format_schedule_label,
     get_station_model,
     load_stations,
     save_station_logo,
@@ -41,11 +41,17 @@ def admin_redirect_if_needed(request: Request):
     return None
 
 
+def admin_url(focus: str | None = None) -> str:
+    if focus:
+        return f"/admin?focus={focus}"
+    return "/admin"
+
+
 @router.get("/login", response_class=HTMLResponse)
-def admin_login_page(request: Request, error: str | None = None):
+def admin_login_page(request: Request):
     if is_authenticated(request):
         return RedirectResponse(url="/admin", status_code=303)
-    show_error = error == "1" or request.query_params.get("error") == "1"
+    show_error = request.query_params.get("error") == "1"
     return templates.TemplateResponse(
         request,
         "admin/login.html",
@@ -71,23 +77,21 @@ def admin_logout(request: Request):
 
 
 @router.get("", response_class=HTMLResponse)
-def admin_dashboard(request: Request, session: Session = Depends(get_session)):
+def admin_dashboard(request: Request):
     redirect = admin_redirect_if_needed(request)
     if redirect:
         return redirect
-
-    stations = load_stations()
-    for station in stations:
-        station["schedule_label"] = format_schedule_label(station["schedule_hours"])
 
     return templates.TemplateResponse(
         request,
         "admin/index.html",
         {
-            "stations": stations,
+            "stations": load_stations(),
+            "countries": COUNTRIES,
             "scheduler_jobs": get_scheduler_jobs(),
             "date_label": format_dutch_date(),
             "active_nav": "stations",
+            "focus_id": request.query_params.get("focus", ""),
         },
     )
 
@@ -98,11 +102,11 @@ def admin_create_station(
     session: Session = Depends(get_session),
     station_id: str = Form(...),
     name: str = Form(...),
-    country: str = Form(...),
+    country: str = Form(default="NL"),
     url: str = Form(...),
-    flag: str = Form(default=""),
-    schedule_mode: str = Form(default="hourly"),
-    schedule_hours: list[str] = Form(default=[]),
+    is_event: str | None = Form(default=None),
+    event_start_date: str = Form(default=""),
+    event_end_date: str = Form(default=""),
     active: str | None = Form(default=None),
     logo_data: str = Form(default=""),
 ):
@@ -110,57 +114,17 @@ def admin_create_station(
     if redirect:
         return redirect
 
-    hours = "*" if schedule_mode == "hourly" else schedule_hours
-
+    station_id = station_id.strip().lower()
     try:
         create_station(
-            session,
-            station_id=station_id.strip().lower(),
-            name=name,
-            country=country,
-            url=url,
-            schedule_hours=hours,
-            flag=flag or None,
-            active=active == "on",
-        )
-        if logo_data:
-            _save_logo_from_data_url(station_id.strip().lower(), logo_data)
-        reload_scheduler()
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    return RedirectResponse(url="/admin", status_code=303)
-
-
-@router.post("/stations/{station_id}/edit")
-def admin_update_station(
-    request: Request,
-    station_id: str,
-    session: Session = Depends(get_session),
-    name: str = Form(...),
-    country: str = Form(...),
-    url: str = Form(...),
-    flag: str = Form(default=""),
-    schedule_mode: str = Form(default="hourly"),
-    schedule_hours: list[str] = Form(default=[]),
-    active: str | None = Form(default=None),
-    logo_data: str = Form(default=""),
-):
-    redirect = admin_redirect_if_needed(request)
-    if redirect:
-        return redirect
-
-    hours = "*" if schedule_mode == "hourly" else schedule_hours
-
-    try:
-        update_station(
             session,
             station_id=station_id,
             name=name,
             country=country,
             url=url,
-            schedule_hours=hours,
-            flag=flag or None,
+            is_event=is_event == "on",
+            event_start_date=event_start_date or None,
+            event_end_date=event_end_date or None,
             active=active == "on",
         )
         if logo_data:
@@ -169,7 +133,46 @@ def admin_update_station(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return RedirectResponse(url="/admin", status_code=303)
+    return RedirectResponse(url=admin_url(station_id), status_code=303)
+
+
+@router.post("/stations/{station_id}/edit")
+def admin_update_station(
+    request: Request,
+    station_id: str,
+    session: Session = Depends(get_session),
+    name: str = Form(...),
+    country: str = Form(default="NL"),
+    url: str = Form(...),
+    is_event: str | None = Form(default=None),
+    event_start_date: str = Form(default=""),
+    event_end_date: str = Form(default=""),
+    active: str | None = Form(default=None),
+    logo_data: str = Form(default=""),
+):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    try:
+        update_station(
+            session,
+            station_id=station_id,
+            name=name,
+            country=country,
+            url=url,
+            is_event=is_event == "on",
+            event_start_date=event_start_date or None,
+            event_end_date=event_end_date or None,
+            active=active == "on",
+        )
+        if logo_data:
+            _save_logo_from_data_url(station_id, logo_data)
+        reload_scheduler()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return RedirectResponse(url=admin_url(station_id), status_code=303)
 
 
 @router.post("/stations/{station_id}/delete")
@@ -203,8 +206,7 @@ async def admin_upload_logo(
     if redirect:
         return redirect
 
-    station = get_station_model(session, station_id)
-    if not station:
+    if not get_station_model(session, station_id):
         raise HTTPException(status_code=404, detail="Zender niet gevonden")
 
     try:
@@ -214,12 +216,11 @@ async def admin_upload_logo(
             image_bytes = await logo.read()
         else:
             raise ValueError("Geen logo ontvangen")
-
         save_station_logo(station_id, image_bytes)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return RedirectResponse(url="/admin", status_code=303)
+    return RedirectResponse(url=admin_url(station_id), status_code=303)
 
 
 def _decode_data_url(data_url: str) -> bytes:

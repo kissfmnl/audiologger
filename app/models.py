@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
@@ -7,10 +7,14 @@ from sqlmodel import Field, SQLModel
 class Station(SQLModel, table=True):
     id: str = Field(primary_key=True)
     name: str
-    country: str
-    flag: str = Field(default="📻")
+    country: str = Field(default="NL")
+    flag: str = Field(default="🇳🇱")
+    timezone: str = Field(default="Europe/Amsterdam")
     url: str
     schedule_hours: str = Field(default="*")
+    is_event: bool = Field(default=False)
+    event_start_date: Optional[str] = Field(default=None)
+    event_end_date: Optional[str] = Field(default=None)
     active: bool = Field(default=True)
     logo_path: Optional[str] = Field(default=None)
 

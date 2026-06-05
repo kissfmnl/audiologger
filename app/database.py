@@ -27,9 +27,10 @@ def init_db() -> None:
     LOGOS_DIR.mkdir(parents=True, exist_ok=True)
     SQLModel.metadata.create_all(engine)
 
-    from app.stations import seed_stations_from_yaml
+    from app.stations import migrate_station_schema, seed_stations_from_yaml
 
     seed_stations_from_yaml()
+    migrate_station_schema()
 
 
 def get_session():
