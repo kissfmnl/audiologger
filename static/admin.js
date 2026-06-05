@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     initSidebarNav();
+    initEditMode();
     initCountrySelects();
     initEventToggles();
     initLogoModal();
@@ -17,13 +18,42 @@ function initSidebarNav() {
                 target.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
             document.querySelectorAll('[data-scroll-target]').forEach((el) => {
-                el.classList.remove('bg-accent-light', 'text-heading', 'border-slate-200');
-                el.classList.add('text-body', 'border-transparent');
+                el.classList.remove('bg-accent-light', 'text-accent-muted', 'border-accent-border');
+                el.classList.add('text-slate-600', 'border-transparent');
             });
-            btn.classList.add('bg-accent-light', 'text-heading', 'border-slate-200');
-            btn.classList.remove('text-body', 'border-transparent');
+            btn.classList.add('bg-accent-light', 'text-accent-muted', 'border-accent-border');
+            btn.classList.remove('text-slate-600', 'border-transparent');
         });
     });
+}
+
+function initEditMode() {
+    let openCard = null;
+
+    const closeEdit = (card) => {
+        if (!card) return;
+        card.querySelector('.station-view')?.classList.remove('hidden');
+        card.querySelector('.station-edit')?.classList.add('hidden');
+        card.classList.remove('is-editing');
+        if (openCard === card) openCard = null;
+    };
+
+    const openEdit = (card) => {
+        if (openCard && openCard !== card) closeEdit(openCard);
+        card.querySelector('.station-view')?.classList.add('hidden');
+        card.querySelector('.station-edit')?.classList.remove('hidden');
+        card.classList.add('is-editing');
+        openCard = card;
+        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
+
+    document.querySelectorAll('.station-card').forEach((card) => {
+        card.querySelector('.edit-station-btn')?.addEventListener('click', () => openEdit(card));
+        card.querySelector('.cancel-edit-btn')?.addEventListener('click', () => closeEdit(card));
+    });
+
+    window.openStationEdit = openEdit;
+    window.closeStationEdit = closeEdit;
 }
 
 function initCountrySelects() {
@@ -38,12 +68,16 @@ function initCountrySelects() {
             if (flagEl && option) {
                 flagEl.textContent = option.dataset.flag || '📻';
             }
-            if (timezoneSelect && option?.dataset.defaultTimezone) {
+            if (timezoneSelect && option?.dataset.defaultTimezone && !select.dataset.userPickedTimezone) {
                 timezoneSelect.value = option.dataset.defaultTimezone;
             }
         };
 
         select.addEventListener('change', updateFromCountry);
+        timezoneSelect?.addEventListener('change', () => {
+            select.dataset.userPickedTimezone = '1';
+        });
+
         if (flagEl) {
             const option = select.selectedOptions[0];
             if (option) flagEl.textContent = option.dataset.flag || '📻';
@@ -55,13 +89,10 @@ function initEventToggles() {
     document.querySelectorAll('.station-row').forEach((row) => {
         const toggle = row.querySelector('.event-toggle');
         const dates = row.querySelector('.event-dates');
-        const placeholder = row.querySelector('.event-placeholder');
         if (!toggle || !dates) return;
 
         const sync = () => {
-            const on = toggle.checked;
-            dates.classList.toggle('hidden', !on);
-            if (placeholder) placeholder.classList.toggle('hidden', on);
+            dates.classList.toggle('hidden', !toggle.checked);
         };
 
         toggle.addEventListener('change', sync);
@@ -79,8 +110,9 @@ function initDeleteButtons() {
     document.querySelectorAll('.delete-station-btn').forEach((btn) => {
         btn.addEventListener('click', async () => {
             const stationId = btn.dataset.stationId;
-            const row = document.getElementById(`station-${stationId}`);
+            const card = document.getElementById(`station-${stationId}`);
             btn.disabled = true;
+            const originalText = btn.textContent;
             btn.textContent = '…';
 
             try {
@@ -91,14 +123,15 @@ function initDeleteButtons() {
                 if (!response.ok) {
                     throw new Error('Verwijderen mislukt');
                 }
-                if (row) {
-                    row.style.opacity = '0';
-                    row.style.transition = 'opacity 0.2s';
-                    setTimeout(() => row.remove(), 200);
+                if (card) {
+                    card.style.opacity = '0';
+                    card.style.transform = 'scale(0.98)';
+                    card.style.transition = 'opacity 0.2s, transform 0.2s';
+                    setTimeout(() => card.remove(), 200);
                 }
             } catch (err) {
                 btn.disabled = false;
-                btn.textContent = '×';
+                btn.textContent = originalText;
                 alert(err.message);
             }
         });
@@ -108,9 +141,9 @@ function initDeleteButtons() {
 function scrollToFocus() {
     const focusId = window.ADMIN_FOCUS_ID;
     if (!focusId) return;
-    const row = document.getElementById(`station-${focusId}`);
-    if (row) {
-        requestAnimationFrame(() => row.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    const card = document.getElementById(`station-${focusId}`);
+    if (card && window.openStationEdit) {
+        requestAnimationFrame(() => window.openStationEdit(card));
     }
 }
 
@@ -188,7 +221,7 @@ function initLogoModal() {
 
         const btn = document.querySelector(`.logo-open-btn[data-form-id="${activeFormId}"]`);
         if (btn) {
-            btn.innerHTML = `<img src="${dataUrl}" class="w-9 h-9 object-cover border border-slate-400" alt="Logo">`;
+            btn.innerHTML = `<img src="${dataUrl}" class="w-16 h-16 object-cover rounded-xl" alt="Logo">`;
         }
 
         if (formSuffix !== 'new') {

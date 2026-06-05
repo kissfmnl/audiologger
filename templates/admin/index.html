@@ -7,242 +7,393 @@
 <style>
     .field-input {
         background: #fff;
-        border: 1px solid #cbd5e1;
-        border-radius: 0.25rem;
-        padding: 0.375rem 0.5rem;
-        color: #0f172a;
+        border: 1px solid #ddd6fe;
+        border-radius: 0.5rem;
+        padding: 0.5rem 0.625rem;
+        color: #1e1b4b;
         font-size: 0.8125rem;
         width: 100%;
         line-height: 1.4;
+        transition: border-color 0.15s, box-shadow 0.15s;
     }
     .field-input:focus {
         outline: none;
-        border-color: #64748b;
-        box-shadow: 0 0 0 1px #64748b;
+        border-color: #a78bfa;
+        box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.25);
+    }
+    .field-input:disabled {
+        background: #f8fafc;
+        color: #64748b;
+        cursor: not-allowed;
     }
     .btn-primary {
-        background: #1e293b;
+        background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
         color: #fff;
-        border: 1px solid #1e293b;
-        border-radius: 0.25rem;
-        font-size: 0.75rem;
-        font-weight: 500;
-        padding: 0.375rem 0.625rem;
+        border: none;
+        border-radius: 0.5rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+        transition: transform 0.1s, box-shadow 0.15s;
+        box-shadow: 0 2px 8px rgba(124, 58, 237, 0.25);
     }
-    .btn-primary:hover { background: #0f172a; }
+    .btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(124, 58, 237, 0.35);
+    }
     .btn-secondary {
         background: #fff;
-        color: #334155;
-        border: 1px solid #cbd5e1;
-        border-radius: 0.25rem;
-        font-size: 0.75rem;
+        color: #6d28d9;
+        border: 1px solid #c4b5fd;
+        border-radius: 0.5rem;
+        font-size: 0.8125rem;
         font-weight: 500;
-        padding: 0.375rem 0.625rem;
+        padding: 0.5rem 0.875rem;
     }
-    .btn-secondary:hover { background: #f8fafc; border-color: #94a3b8; }
-    .data-table th {
+    .btn-secondary:hover { background: #f5f3ff; }
+    .btn-ghost {
+        background: transparent;
+        color: #64748b;
+        border: 1px solid transparent;
+        border-radius: 0.5rem;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        padding: 0.5rem 0.875rem;
+    }
+    .btn-ghost:hover { background: #f1f5f9; color: #475569; }
+    .field-label {
+        display: block;
         font-size: 0.6875rem;
         font-weight: 600;
         letter-spacing: 0.04em;
         text-transform: uppercase;
+        color: #8b5cf6;
+        margin-bottom: 0.375rem;
+    }
+    .badge-active {
+        background: #d1fae5;
+        color: #047857;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        padding: 0.125rem 0.5rem;
+        border-radius: 9999px;
+    }
+    .badge-inactive {
+        background: #f1f5f9;
         color: #64748b;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        padding: 0.125rem 0.5rem;
+        border-radius: 9999px;
+    }
+    .badge-event {
+        background: #fef3c7;
+        color: #b45309;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        padding: 0.125rem 0.5rem;
+        border-radius: 9999px;
+    }
+    .station-card.is-editing {
+        border-color: #a78bfa;
+        box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.2);
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="mb-5 pb-4 border-b border-slate-200">
-    <p class="text-xs text-muted mb-1">Radio / Zenders</p>
-    <h1 class="text-lg font-semibold text-heading tracking-tight">Zenders beheren</h1>
-    <p class="text-xs text-muted mt-1">{{ date_label }} · opname elk heel uur (lokale tijdzone)</p>
+<div class="mb-6">
+    <p class="text-xs font-medium text-violet-400 mb-1">Radio</p>
+    <h1 class="text-xl font-bold text-heading tracking-tight">Zenders beheren</h1>
+    <p class="text-xs text-slate-500 mt-1">{{ date_label }} · opname elk heel uur in lokale tijdzone</p>
 </div>
 
 {% if notice == 'added' %}
-<div class="mb-4 pl-3 py-2.5 border-l-2 border-slate-700 bg-white border border-slate-200 text-xs text-body">
-    Zender toegevoegd.{% if first_recording %} Eerste opname om <span class="font-semibold text-heading">{{ first_recording }}</span> (lokale tijd).{% endif %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-emerald-200 bg-emerald-50 text-xs text-emerald-800">
+    Zender toegevoegd.{% if first_recording %} Eerste opname om <strong>{{ first_recording }}</strong> (lokale tijd).{% endif %}
 </div>
 {% elif notice == 'deleted' %}
-<div id="delete-toast" class="mb-4 pl-3 py-2.5 border-l-2 border-slate-400 bg-white border border-slate-200 text-xs text-muted">
+<div id="delete-toast" class="mb-5 pl-4 py-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-500">
     Zender verwijderd.
 </div>
 {% endif %}
 
-<form id="form-new" method="post" action="/admin/stations" class="hidden"></form>
-
-<div id="section-stations" class="bg-white border border-slate-200 overflow-hidden mb-5 scroll-mt-4">
-    <div class="px-4 py-3 border-b border-slate-200 bg-slate-50">
-        <h2 class="text-xs font-semibold text-heading uppercase tracking-wide">Zenderlijst</h2>
+{# ── Nieuwe zender ── #}
+<div id="section-add" class="scroll-mt-4 mb-8 rounded-xl border border-emerald-200 bg-white shadow-card overflow-hidden">
+    <div class="px-5 py-3.5 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-teal-50 flex items-center gap-2">
+        <span class="w-6 h-6 rounded-lg bg-emerald-500 text-white flex items-center justify-center text-sm font-bold">+</span>
+        <h2 class="text-sm font-semibold text-emerald-900">Nieuwe zender toevoegen</h2>
     </div>
-    <div class="overflow-x-auto">
-        <table class="data-table w-full min-w-[1280px]">
-            <thead>
-                <tr class="text-left border-b border-slate-200 bg-slate-50/80">
-                    <th class="px-3 py-2.5 w-12">Logo</th>
-                    <th class="px-3 py-2.5 w-28">ID</th>
-                    <th class="px-3 py-2.5 w-32">Naam</th>
-                    <th class="px-3 py-2.5 w-36">Land</th>
-                    <th class="px-3 py-2.5 w-44">Tijdzone</th>
-                    <th class="px-3 py-2.5">Stream URL</th>
-                    <th class="px-3 py-2.5 w-24">Type</th>
-                    <th class="px-3 py-2.5 w-48">Periode</th>
-                    <th class="px-3 py-2.5 w-10 text-center">Aan</th>
-                    <th class="px-3 py-2.5 w-28"></th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-                <tr class="bg-slate-50/50 station-row border-b border-slate-200" data-station-id="new">
-                    <td class="px-3 py-2 align-top">
-                        <button type="button" class="logo-open-btn w-9 h-9 bg-white border border-slate-300 text-base hover:border-slate-500 flex items-center justify-center" data-form-id="form-new">📻</button>
-                        <input type="hidden" form="form-new" name="logo_data" id="logo-data-new" value="">
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <input form="form-new" name="station_id" required pattern="[a-z0-9_]+" placeholder="radio1_nl"
-                               class="field-input font-mono text-xs">
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <input form="form-new" name="name" required placeholder="Naam" class="field-input">
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <div class="flex items-center gap-1.5">
-                            <span class="text-base country-flag leading-none" data-for="form-new">🇳🇱</span>
-                            <select form="form-new" name="country" class="country-select field-input text-xs">
-                                {% for c in countries %}
-                                <option value="{{ c.code }}" data-flag="{{ c.flag }}"
-                                        data-default-timezone="{{ c.default_timezone }}"
-                                        {% if c.code == 'NL' %}selected{% endif %}>{{ c.name }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <select form="form-new" name="timezone" class="timezone-select field-input text-xs font-mono">
-                            {% for group in timezone_groups %}
-                            <optgroup label="{{ group.label }}">
-                                {% for tz in group.timezones %}
-                                <option value="{{ tz }}" {% if tz == default_timezone %}selected{% endif %}>{{ tz }}</option>
-                                {% endfor %}
-                            </optgroup>
+
+    <form id="form-new" method="post" action="/admin/stations" class="p-5 station-row" data-station-id="new">
+        <div class="flex flex-col sm:flex-row gap-5">
+            <div class="shrink-0">
+                <label class="field-label">Logo</label>
+                <button type="button" class="logo-open-btn w-16 h-16 rounded-xl bg-violet-50 border-2 border-dashed border-violet-200 text-2xl hover:border-violet-400 hover:bg-violet-100 flex items-center justify-center transition" data-form-id="form-new">📻</button>
+                <input type="hidden" name="logo_data" id="logo-data-new" value="">
+            </div>
+
+            <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="field-label" for="new-station-id">ID</label>
+                    <input id="new-station-id" name="station_id" required pattern="[a-z0-9_]+" placeholder="kissfm_nl"
+                           class="field-input font-mono text-xs">
+                </div>
+                <div>
+                    <label class="field-label" for="new-name">Naam</label>
+                    <input id="new-name" name="name" required placeholder="Kiss FM" class="field-input">
+                </div>
+                <div>
+                    <label class="field-label">Land</label>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xl country-flag leading-none">🇳🇱</span>
+                        <select name="country" class="country-select field-input text-xs flex-1">
+                            {% for c in countries %}
+                            <option value="{{ c.code }}" data-flag="{{ c.flag }}"
+                                    data-default-timezone="{{ c.default_timezone }}"
+                                    {% if c.code == 'NL' %}selected{% endif %}>{{ c.name }}</option>
                             {% endfor %}
                         </select>
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <input form="form-new" name="url" type="text" required placeholder="stream.example.com/live" class="field-input text-xs font-mono">
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <label class="flex items-center gap-1.5 text-xs text-body">
-                            <input form="form-new" type="checkbox" name="is_event" class="event-toggle accent-slate-700">
-                            Event
-                        </label>
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <div class="event-dates hidden flex gap-1">
-                            <input form="form-new" type="date" name="event_start_date" class="field-input text-xs">
-                            <input form="form-new" type="date" name="event_end_date" class="field-input text-xs">
+                    </div>
+                </div>
+                <div>
+                    <label class="field-label">Tijdzone</label>
+                    <select name="timezone" class="timezone-select field-input text-xs font-mono">
+                        {% for group in timezone_groups %}
+                        <optgroup label="{{ group.label }}">
+                            {% for tz in group.timezones %}
+                            <option value="{{ tz }}" {% if tz == default_timezone %}selected{% endif %}>{{ tz }}</option>
+                            {% endfor %}
+                        </optgroup>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="field-label" for="new-url">Stream URL</label>
+                    <input id="new-url" name="url" type="text" required placeholder="stream.example.com/live" class="field-input text-xs font-mono">
+                </div>
+                <div class="flex flex-wrap items-end gap-4">
+                    <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                        <input type="checkbox" name="is_event" class="event-toggle rounded accent-violet-600">
+                        <span class="font-medium">Eventzender</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                        <input type="checkbox" name="active" checked class="rounded accent-violet-600">
+                        <span class="font-medium">Direct actief</span>
+                    </label>
+                </div>
+                <div class="sm:col-span-2">
+                    <div class="event-dates hidden flex flex-wrap gap-3">
+                        <div class="flex-1 min-w-[140px]">
+                            <label class="field-label">Startdatum</label>
+                            <input type="date" name="event_start_date" class="field-input text-xs">
                         </div>
-                        <span class="event-placeholder text-xs text-muted">Hele dag</span>
-                    </td>
-                    <td class="px-3 py-2 align-top text-center">
-                        <input form="form-new" type="checkbox" name="active" checked class="accent-slate-700">
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <button form="form-new" type="submit" class="btn-primary w-full">Toevoegen</button>
-                    </td>
-                </tr>
+                        <div class="flex-1 min-w-[140px]">
+                            <label class="field-label">Einddatum</label>
+                            <input type="date" name="event_end_date" class="field-input text-xs">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-                {% for station in stations %}
-                <form id="form-{{ station.id }}" method="post" action="/admin/stations/{{ station.id }}/edit" class="hidden"></form>
-                <tr id="station-{{ station.id }}" class="station-row scroll-mt-20 hover:bg-slate-50/40 {% if focus_id == station.id %}bg-slate-100/80{% endif %}" data-station-id="{{ station.id }}">
-                    <td class="px-3 py-2 align-top">
-                        <button type="button" class="logo-open-btn block" data-form-id="form-{{ station.id }}">
+        <div class="mt-5 pt-4 border-t border-emerald-50 flex justify-end">
+            <button type="submit" class="btn-primary">Zender toevoegen</button>
+        </div>
+    </form>
+</div>
+
+{# ── Bestaande zenders ── #}
+<div id="section-stations" class="scroll-mt-4">
+    <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z"/>
+                </svg>
+            </span>
+            <h2 class="text-sm font-semibold text-heading">Bestaande zenders</h2>
+            <span class="text-xs font-medium text-violet-400 bg-violet-50 px-2 py-0.5 rounded-full">{{ stations|length }}</span>
+        </div>
+    </div>
+
+    {% if not stations %}
+    <div class="rounded-xl border border-dashed border-violet-200 bg-white/60 p-8 text-center">
+        <p class="text-sm text-slate-500">Nog geen zenders. Voeg hierboven je eerste zender toe.</p>
+    </div>
+    {% endif %}
+
+    <div class="space-y-3">
+        {% for station in stations %}
+        <article id="station-{{ station.id }}"
+                 class="station-card rounded-xl border border-violet-100 bg-white shadow-card overflow-hidden scroll-mt-20 transition {% if focus_id == station.id %}ring-2 ring-violet-300{% endif %}"
+                 data-station-id="{{ station.id }}">
+
+            {# View mode #}
+            <div class="station-view p-4 sm:p-5">
+                <div class="flex gap-4">
+                    <div class="shrink-0">
+                        {% if station.logo_url %}
+                        <img src="{{ station.logo_url }}?v={{ station.id }}" alt="" class="w-14 h-14 rounded-xl object-cover border border-violet-100">
+                        {% else %}
+                        <span class="w-14 h-14 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-2xl">{{ station.flag }}</span>
+                        {% endif %}
+                    </div>
+
+                    <div class="flex-1 min-w-0">
+                        <div class="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                                <h3 class="font-semibold text-heading text-base">{{ station.name }}</h3>
+                                <p class="text-xs font-mono text-violet-400 mt-0.5">{{ station.id }}</p>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                {% if station.active %}
+                                <span class="badge-active">Actief</span>
+                                {% else %}
+                                <span class="badge-inactive">Uit</span>
+                                {% endif %}
+                                {% if station.is_event %}
+                                <span class="badge-event">Event</span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <dl class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                            <div class="flex gap-1.5">
+                                <dt class="text-slate-400 shrink-0">Land</dt>
+                                <dd class="text-slate-600">{{ station.flag }} {{ station.country_name }}</dd>
+                            </div>
+                            <div class="flex gap-1.5">
+                                <dt class="text-slate-400 shrink-0">Tijdzone</dt>
+                                <dd class="text-slate-600 font-mono">{{ station.timezone }}</dd>
+                            </div>
+                            <div class="flex gap-1.5 sm:col-span-2">
+                                <dt class="text-slate-400 shrink-0">Stream</dt>
+                                <dd class="text-slate-600 font-mono truncate">{{ station.url }}</dd>
+                            </div>
+                            <div class="flex gap-1.5 sm:col-span-2">
+                                <dt class="text-slate-400 shrink-0">Schema</dt>
+                                <dd class="text-slate-600">{{ station.schedule_label }}</dd>
+                            </div>
+                        </dl>
+                    </div>
+                </div>
+
+                <div class="mt-4 pt-3 border-t border-violet-50 flex justify-end gap-2">
+                    <button type="button" class="edit-station-btn btn-secondary">Aanpassen</button>
+                    <button type="button" class="delete-station-btn btn-ghost text-red-500 hover:text-red-600 hover:bg-red-50"
+                            data-station-id="{{ station.id }}">Verwijderen</button>
+                </div>
+            </div>
+
+            {# Edit mode #}
+            <form id="form-{{ station.id }}" method="post" action="/admin/stations/{{ station.id }}/edit"
+                  class="station-edit hidden station-row border-t border-violet-100 bg-violet-50/40 p-4 sm:p-5">
+                <p class="text-xs font-semibold text-violet-600 uppercase tracking-wide mb-4">Zender aanpassen</p>
+
+                <div class="flex flex-col sm:flex-row gap-5">
+                    <div class="shrink-0">
+                        <label class="field-label">Logo</label>
+                        <button type="button" class="logo-open-btn block rounded-xl overflow-hidden border-2 border-violet-200 hover:border-violet-400 transition" data-form-id="form-{{ station.id }}">
                             {% if station.logo_url %}
-                            <img src="{{ station.logo_url }}?v={{ station.id }}" class="w-9 h-9 object-cover border border-slate-200">
+                            <img src="{{ station.logo_url }}?v={{ station.id }}" class="w-16 h-16 object-cover">
                             {% else %}
-                            <span class="w-9 h-9 bg-white border border-slate-200 flex items-center justify-center text-base">{{ station.flag }}</span>
+                            <span class="w-16 h-16 bg-violet-100 flex items-center justify-center text-2xl">{{ station.flag }}</span>
                             {% endif %}
                         </button>
-                        <input type="hidden" form="form-{{ station.id }}" name="logo_data" id="logo-data-{{ station.id }}" value="">
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <span class="text-xs font-mono text-muted py-1.5 block">{{ station.id }}</span>
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <input form="form-{{ station.id }}" name="name" required value="{{ station.name }}" class="field-input">
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <div class="flex items-center gap-1.5">
-                            <span class="text-base country-flag leading-none" data-for="form-{{ station.id }}">{{ station.flag }}</span>
-                            <select form="form-{{ station.id }}" name="country" class="country-select field-input text-xs">
-                                {% for c in countries %}
-                                <option value="{{ c.code }}" data-flag="{{ c.flag }}"
-                                        data-default-timezone="{{ c.default_timezone }}"
-                                        {% if station.country == c.code %}selected{% endif %}>{{ c.name }}</option>
+                        <input type="hidden" name="logo_data" id="logo-data-{{ station.id }}" value="">
+                    </div>
+
+                    <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="field-label">ID</label>
+                            <p class="field-input font-mono text-xs bg-slate-50 text-slate-500 cursor-default">{{ station.id }}</p>
+                        </div>
+                        <div>
+                            <label class="field-label">Naam</label>
+                            <input name="name" required value="{{ station.name }}" class="field-input">
+                        </div>
+                        <div>
+                            <label class="field-label">Land</label>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xl country-flag leading-none">{{ station.flag }}</span>
+                                <select name="country" class="country-select field-input text-xs flex-1">
+                                    {% for c in countries %}
+                                    <option value="{{ c.code }}" data-flag="{{ c.flag }}"
+                                            data-default-timezone="{{ c.default_timezone }}"
+                                            {% if station.country == c.code %}selected{% endif %}>{{ c.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="field-label">Tijdzone</label>
+                            <select name="timezone" class="timezone-select field-input text-xs font-mono">
+                                {% for group in timezone_groups %}
+                                <optgroup label="{{ group.label }}">
+                                    {% for tz in group.timezones %}
+                                    <option value="{{ tz }}" {% if station.timezone == tz %}selected{% endif %}>{{ tz }}</option>
+                                    {% endfor %}
+                                </optgroup>
                                 {% endfor %}
                             </select>
                         </div>
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <select form="form-{{ station.id }}" name="timezone" class="timezone-select field-input text-xs font-mono">
-                            {% for group in timezone_groups %}
-                            <optgroup label="{{ group.label }}">
-                                {% for tz in group.timezones %}
-                                <option value="{{ tz }}" {% if station.timezone == tz %}selected{% endif %}>{{ tz }}</option>
-                                {% endfor %}
-                            </optgroup>
-                            {% endfor %}
-                        </select>
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <input form="form-{{ station.id }}" name="url" type="text" required value="{{ station.url }}" class="field-input text-xs font-mono">
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <label class="flex items-center gap-1.5 text-xs text-body">
-                            <input form="form-{{ station.id }}" type="checkbox" name="is_event" class="event-toggle accent-slate-700"
-                                   {% if station.is_event %}checked{% endif %}>
-                            Event
-                        </label>
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <div class="event-dates {% if not station.is_event %}hidden{% endif %} flex gap-1">
-                            <input form="form-{{ station.id }}" type="date" name="event_start_date" value="{{ station.event_start_date }}" class="field-input text-xs">
-                            <input form="form-{{ station.id }}" type="date" name="event_end_date" value="{{ station.event_end_date }}" class="field-input text-xs">
+                        <div class="sm:col-span-2">
+                            <label class="field-label">Stream URL</label>
+                            <input name="url" type="text" required value="{{ station.url }}" class="field-input text-xs font-mono">
                         </div>
-                        <span class="event-placeholder text-xs text-muted {% if station.is_event %}hidden{% endif %}">Hele dag</span>
-                    </td>
-                    <td class="px-3 py-2 align-top text-center">
-                        <input form="form-{{ station.id }}" type="checkbox" name="active" class="accent-slate-700" {% if station.active %}checked{% endif %}>
-                    </td>
-                    <td class="px-3 py-2 align-top">
-                        <div class="flex gap-1">
-                            <button form="form-{{ station.id }}" type="submit" class="btn-secondary flex-1">Opslaan</button>
-                            <button type="button"
-                                    class="delete-station-btn px-2 py-1.5 border border-transparent text-slate-400 hover:text-red-600 hover:border-red-200 text-sm"
-                                    data-station-id="{{ station.id }}"
-                                    title="Verwijderen">×</button>
+                        <div class="flex flex-wrap items-end gap-4">
+                            <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                                <input type="checkbox" name="is_event" class="event-toggle rounded accent-violet-600"
+                                       {% if station.is_event %}checked{% endif %}>
+                                <span class="font-medium">Eventzender</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                                <input type="checkbox" name="active" class="rounded accent-violet-600" {% if station.active %}checked{% endif %}>
+                                <span class="font-medium">Actief</span>
+                            </label>
                         </div>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                        <div class="sm:col-span-2">
+                            <div class="event-dates {% if not station.is_event %}hidden{% endif %} flex flex-wrap gap-3">
+                                <div class="flex-1 min-w-[140px]">
+                                    <label class="field-label">Startdatum</label>
+                                    <input type="date" name="event_start_date" value="{{ station.event_start_date }}" class="field-input text-xs">
+                                </div>
+                                <div class="flex-1 min-w-[140px]">
+                                    <label class="field-label">Einddatum</label>
+                                    <input type="date" name="event_end_date" value="{{ station.event_end_date }}" class="field-input text-xs">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-5 pt-4 border-t border-violet-100 flex justify-end gap-2">
+                    <button type="button" class="cancel-edit-btn btn-ghost">Annuleren</button>
+                    <button type="submit" class="btn-primary">Opslaan</button>
+                </div>
+            </form>
+        </article>
+        {% endfor %}
     </div>
 </div>
 
-<div id="logo-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
-    <div class="bg-white border border-slate-200 max-w-lg w-full p-5 shadow-lg">
+<div id="logo-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-indigo-950/40 p-4 backdrop-blur-sm">
+    <div class="bg-white border border-violet-100 rounded-xl max-w-lg w-full p-5 shadow-xl">
         <h3 class="text-sm font-semibold text-heading mb-1">Logo uploaden</h3>
-        <p class="text-xs text-muted mb-4">1080 × 1080 px, vierkant</p>
+        <p class="text-xs text-slate-500 mb-4">1080 × 1080 px, vierkant</p>
         <input type="file" accept="image/jpeg,image/png,image/webp" id="logo-file-input"
-               class="w-full text-xs text-muted file:mr-3 file:py-1.5 file:px-3 file:border file:border-slate-300 file:bg-white file:text-body file:text-xs mb-3">
+               class="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:border file:border-violet-200 file:rounded-lg file:bg-violet-50 file:text-violet-700 file:text-xs mb-3">
         <div id="logo-crop-area" class="hidden">
-            <div class="bg-slate-100 border border-slate-200 overflow-hidden max-h-64">
+            <div class="bg-violet-50 border border-violet-100 rounded-lg overflow-hidden max-h-64">
                 <img id="logo-crop-image" class="max-w-full" alt="Crop">
             </div>
-            <label class="flex items-center gap-2 text-xs text-muted mt-3">
+            <label class="flex items-center gap-2 text-xs text-slate-500 mt-3">
                 Zoom
-                <input type="range" id="logo-zoom-slider" min="0.1" max="3" step="0.01" value="1" class="flex-1 accent-slate-700">
+                <input type="range" id="logo-zoom-slider" min="0.1" max="3" step="0.01" value="1" class="flex-1 accent-violet-600">
             </label>
         </div>
-        <div class="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-100">
+        <div class="flex justify-end gap-2 mt-4 pt-3 border-t border-violet-50">
             <button type="button" id="logo-modal-cancel" class="btn-secondary">Annuleren</button>
             <button type="button" id="logo-modal-apply" class="btn-primary" disabled>Toepassen</button>
         </div>
