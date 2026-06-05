@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from datetime import date, datetime
@@ -8,12 +9,13 @@ import yaml
 from sqlmodel import Session, select
 from sqlalchemy import text
 
-from app.database import BASE_DIR, LOGOS_DIR, engine
+from app.database import BASE_DIR, LOGOS_DIR, RECORDINGS_DIR, engine
 from app.models import Station
 
 logger = logging.getLogger(__name__)
 
 STATIONS_CONFIG = BASE_DIR / "config" / "stations.yaml"
+STATIONS_BACKUP_PATH = RECORDINGS_DIR / "stations.backup.json"
 STATION_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 DEFAULT_TIMEZONE = "Europe/Amsterdam"
 
@@ -172,6 +174,89 @@ def station_to_dict(station: Station) -> dict:
     }
     data["schedule_label"] = format_schedule_label(data)
     return data
+
+
+def _station_backup_row(station: Station) -> dict:
+    return {
+        "id": station.id,
+        "name": station.name,
+        "country": station.country,
+        "flag": station.flag,
+        "timezone": station.timezone or DEFAULT_TIMEZONE,
+        "url": station.url,
+        "schedule_hours": station.schedule_hours or "*",
+        "is_event": station.is_event,
+        "event_start_date": station.event_start_date,
+        "event_end_date": station.event_end_date,
+        "active": station.active,
+        "logo_path": station.logo_path,
+    }
+
+
+def backup_stations_to_disk() -> None:
+    """Schrijf zenderconfig naar het persistente volume (backup bij elke wijziging)."""
+    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+    with Session(engine) as session:
+        stations = session.exec(select(Station).order_by(Station.name)).all()
+        payload = [_station_backup_row(station) for station in stations]
+
+    STATIONS_BACKUP_PATH.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    logger.info("Station backup saved (%d zenders) -> %s", len(payload), STATIONS_BACKUP_PATH)
+
+
+def restore_stations_from_backup_if_needed() -> int:
+    """Herstel zenders uit backup als de database leeg is (bijv. na volume-reset)."""
+    with Session(engine) as session:
+        if session.exec(select(Station)).first():
+            return 0
+
+    if not STATIONS_BACKUP_PATH.exists():
+        logger.warning("Database has no stations and no backup file at %s", STATIONS_BACKUP_PATH)
+        return 0
+
+    try:
+        payload = json.loads(STATIONS_BACKUP_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.error("Could not read station backup: %s", exc)
+        return 0
+
+    if not payload:
+        return 0
+
+    with Session(engine) as session:
+        for item in payload:
+            session.add(
+                Station(
+                    id=item["id"],
+                    name=item["name"],
+                    country=item.get("country", "NL"),
+                    flag=item.get("flag", "📻"),
+                    timezone=item.get("timezone", DEFAULT_TIMEZONE),
+                    url=item["url"],
+                    schedule_hours=item.get("schedule_hours", "*"),
+                    is_event=bool(item.get("is_event", False)),
+                    event_start_date=item.get("event_start_date"),
+                    event_end_date=item.get("event_end_date"),
+                    active=bool(item.get("active", True)),
+                    logo_path=item.get("logo_path"),
+                )
+            )
+        session.commit()
+
+    logger.warning("Restored %d stations from backup", len(payload))
+    return len(payload)
+
+
+def ensure_stations_backup_exists() -> None:
+    """Maak een backup als er zenders zijn maar nog geen backupbestand."""
+    if STATIONS_BACKUP_PATH.exists():
+        return
+    with Session(engine) as session:
+        if session.exec(select(Station)).first():
+            backup_stations_to_disk()
 
 
 def migrate_station_schema() -> None:
@@ -395,6 +480,7 @@ def create_station(
     session.add(station)
     session.commit()
     session.refresh(station)
+    backup_stations_to_disk()
     return station
 
 
@@ -436,6 +522,7 @@ def update_station(
     session.add(station)
     session.commit()
     session.refresh(station)
+    backup_stations_to_disk()
     return station
 
 
@@ -451,6 +538,7 @@ def delete_station(session: Session, station_id: str) -> None:
 
     session.delete(station)
     session.commit()
+    backup_stations_to_disk()
 
 
 def save_station_logo(station_id: str, image_bytes: bytes) -> str:
@@ -471,4 +559,5 @@ def save_station_logo(station_id: str, image_bytes: bytes) -> str:
         session.add(station)
         session.commit()
 
+    backup_stations_to_disk()
     return filename

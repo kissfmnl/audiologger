@@ -8,6 +8,7 @@ venv/
 recordings/*.mp3
 recordings/logs/
 recordings/audiologger.db
+recordings/stations.backup.json
 recordings/logos/*.jpg
 static/trimmed/
 .DS_Store

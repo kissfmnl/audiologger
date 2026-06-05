@@ -42,10 +42,24 @@ def init_db() -> None:
     migrate_database_location()
     SQLModel.metadata.create_all(engine)
 
-    from app.stations import migrate_station_schema, reconcile_logos
+    from app.stations import (
+        ensure_stations_backup_exists,
+        migrate_station_schema,
+        reconcile_logos,
+        restore_stations_from_backup_if_needed,
+    )
+    from app.models import Station
 
     migrate_station_schema()
+    restored = restore_stations_from_backup_if_needed()
+    ensure_stations_backup_exists()
     reconcile_logos()
+
+    with Session(engine) as session:
+        station_count = len(session.exec(select(Station)).all())
+
+    logger.info("Database path: %s (exists=%s)", DATABASE_PATH, DATABASE_PATH.exists())
+    logger.info("Stations in database: %d%s", station_count, " (restored from backup)" if restored else "")
 
 
 def get_session():
