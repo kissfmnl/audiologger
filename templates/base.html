@@ -14,8 +14,8 @@
                 extend: {
                     colors: {
                         page: '#EEF1F6',
-                        sidebar: '#FFFFFF',
-                        surface: '#FFFFFF',
+                        sidebar: '#F3F4F6',
+                        surface: '#F3F4F6',
                         heading: '#111827',
                         body: '#374151',
                         muted: '#6B7280',
@@ -39,11 +39,17 @@
     </script>
     <style>
         body { font-family: 'Inter', system-ui, sans-serif; }
+        img.station-logo {
+            -webkit-user-drag: none;
+            user-select: none;
+            -webkit-user-select: none;
+            pointer-events: none;
+        }
     </style>
     {% block head %}{% endblock %}
 </head>
 <body class="bg-page text-body min-h-screen">
-    <nav class="bg-white border-b border-gray-200/80 sticky top-0 z-50">
+    <nav class="bg-surface border-b border-gray-200/80 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
                 <a href="/" class="flex items-center gap-3 group">
@@ -69,7 +75,7 @@
         {% block content %}{% endblock %}
     </main>
 
-    <footer class="border-t border-gray-200/80 mt-16 py-6 bg-white">
+    <footer class="border-t border-gray-200/80 mt-16 py-6 bg-surface">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm text-muted">
             AudioLogger &mdash; Professionele radio-audiologger
         </div>

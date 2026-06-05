@@ -142,8 +142,8 @@ function scrollToFocus() {
     const focusId = window.ADMIN_FOCUS_ID;
     if (!focusId) return;
     const card = document.getElementById(`station-${focusId}`);
-    if (card && window.openStationEdit) {
-        requestAnimationFrame(() => window.openStationEdit(card));
+    if (card) {
+        requestAnimationFrame(() => card.scrollIntoView({ behavior: 'smooth', block: 'center' }));
     }
 }
 

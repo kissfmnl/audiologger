@@ -14,7 +14,8 @@
     <div class="flex items-center gap-4 mb-2">
         {% if station.logo_url %}
         <img src="{{ station.logo_url }}" alt="{{ station.name }}"
-             class="w-20 h-20 rounded-2xl object-cover border border-gray-100 shadow-sm">
+             class="station-logo w-20 h-20 rounded-2xl object-cover border border-gray-200 bg-gray-100 shadow-sm"
+             draggable="false" oncontextmenu="return false">
         {% else %}
         <span class="text-5xl">{{ station.flag }}</span>
         {% endif %}
@@ -29,7 +30,7 @@
     <div>
         <label for="date" class="block text-sm font-medium text-body mb-1">Zoek op datum</label>
         <input type="date" id="date" name="date" value="{{ date_filter }}"
-               class="bg-white border border-gray-200 rounded-xl px-4 py-2 text-heading focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-600">
+               class="bg-surface border border-gray-200 rounded-xl px-4 py-2 text-heading focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-600">
     </div>
     <button type="submit"
             class="px-4 py-2 rounded-xl bg-purple-600 text-white font-medium hover:bg-purple-700 transition shadow-sm">
@@ -37,13 +38,13 @@
     </button>
     {% if date_filter %}
     <a href="/station/{{ station.id }}"
-       class="px-4 py-2 rounded-xl bg-white border border-gray-200 text-body hover:bg-gray-50 transition">
+       class="px-4 py-2 rounded-xl bg-surface border border-gray-200 text-body hover:bg-gray-100 transition">
         Wis filter
     </a>
     {% endif %}
 </form>
 
-<div class="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+<div class="bg-surface rounded-2xl shadow-card border border-gray-100 overflow-hidden">
     {% if recordings %}
     <div class="overflow-x-auto">
         <table class="w-full text-sm">

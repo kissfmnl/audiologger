@@ -19,7 +19,8 @@
     <div class="flex items-center gap-3 mb-2">
         {% if station and station.logo_url %}
         <img src="{{ station.logo_url }}" alt="{{ recording.station_name }}"
-             class="w-14 h-14 rounded-2xl object-cover border border-gray-100 shadow-sm">
+             class="station-logo w-14 h-14 rounded-2xl object-cover border border-gray-200 bg-gray-100 shadow-sm"
+             draggable="false" oncontextmenu="return false">
         {% elif station %}
         <span class="text-3xl">{{ station.flag }}</span>
         {% endif %}
@@ -33,7 +34,7 @@
     </div>
 </div>
 
-<div class="bg-white rounded-2xl shadow-card border border-gray-100 p-6 mb-6">
+<div class="bg-surface rounded-2xl shadow-card border border-gray-100 p-6 mb-6">
     <div id="waveform" class="mb-4 rounded-xl overflow-hidden bg-gray-50"></div>
 
     <div class="flex flex-wrap items-center gap-4 mb-4">

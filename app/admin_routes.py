@@ -211,7 +211,7 @@ def admin_update_station(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return RedirectResponse(url=admin_url(station_id), status_code=303)
+    return RedirectResponse(url=admin_url(notice="saved"), status_code=303)
 
 
 @router.post("/stations/{station_id}/delete")
@@ -270,7 +270,7 @@ async def admin_upload_logo(
     if request.headers.get("X-Requested-With") == "fetch":
         return JSONResponse({"ok": True, "logo_url": f"/logos/{station_id}.jpg"})
 
-    return RedirectResponse(url=admin_url(station_id, notice="logo"), status_code=303)
+    return RedirectResponse(url=admin_url(notice="logo"), status_code=303)
 
 
 def _decode_data_url(data_url: str) -> bytes:

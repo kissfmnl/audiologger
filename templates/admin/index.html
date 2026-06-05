@@ -112,14 +112,22 @@
 <div class="mb-5 pl-4 py-3 rounded-lg border border-emerald-200 bg-emerald-50 text-xs text-emerald-800">
     Zender toegevoegd.{% if first_recording %} Eerste opname om <strong>{{ first_recording }}</strong> (lokale tijd).{% endif %}
 </div>
+{% elif notice == 'saved' %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-violet-200 bg-violet-50 text-xs text-violet-800">
+    Wijzigingen opgeslagen.
+</div>
+{% elif notice == 'logo' %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-violet-200 bg-violet-50 text-xs text-violet-800">
+    Logo opgeslagen.
+</div>
 {% elif notice == 'deleted' %}
-<div id="delete-toast" class="mb-5 pl-4 py-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-500">
+<div id="delete-toast" class="mb-5 pl-4 py-3 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-500">
     Zender verwijderd.
 </div>
 {% endif %}
 
 {# ── Nieuwe zender ── #}
-<div id="section-add" class="scroll-mt-4 mb-8 rounded-xl border border-emerald-200 bg-white shadow-card overflow-hidden">
+<div id="section-add" class="scroll-mt-4 mb-8 rounded-xl border border-emerald-200 bg-slate-50 shadow-card overflow-hidden">
     <div class="px-5 py-3.5 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-teal-50 flex items-center gap-2">
         <span class="w-6 h-6 rounded-lg bg-emerald-500 text-white flex items-center justify-center text-sm font-bold">+</span>
         <h2 class="text-sm font-semibold text-emerald-900">Nieuwe zender toevoegen</h2>
@@ -218,7 +226,7 @@
     </div>
 
     {% if not stations %}
-    <div class="rounded-xl border border-dashed border-violet-200 bg-white/60 p-8 text-center">
+    <div class="rounded-xl border border-dashed border-violet-200 bg-slate-50/80 p-8 text-center">
         <p class="text-sm text-slate-500">Nog geen zenders. Voeg hierboven je eerste zender toe.</p>
     </div>
     {% endif %}
@@ -226,7 +234,7 @@
     <div class="space-y-3">
         {% for station in stations %}
         <article id="station-{{ station.id }}"
-                 class="station-card rounded-xl border border-violet-100 bg-white shadow-card overflow-hidden scroll-mt-20 transition {% if focus_id == station.id %}ring-2 ring-violet-300{% endif %}"
+                 class="station-card rounded-xl border border-violet-100 bg-slate-50 shadow-card overflow-hidden scroll-mt-20 transition"
                  data-station-id="{{ station.id }}">
 
             {# View mode #}
@@ -234,7 +242,7 @@
                 <div class="flex gap-4">
                     <div class="shrink-0">
                         {% if station.logo_url %}
-                        <img src="{{ station.logo_url }}?v={{ station.id }}" alt="" class="w-14 h-14 rounded-xl object-cover border border-violet-100">
+                        <img src="{{ station.logo_url }}?v={{ station.id }}" alt="" class="w-14 h-14 rounded-xl object-cover border border-gray-200 bg-gray-100">
                         {% else %}
                         <span class="w-14 h-14 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-2xl">{{ station.flag }}</span>
                         {% endif %}

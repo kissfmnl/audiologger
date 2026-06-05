@@ -10,15 +10,15 @@
 </div>
 
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-    <div class="bg-white rounded-2xl shadow-card border border-gray-100 p-6">
+    <div class="bg-surface rounded-2xl shadow-card border border-gray-100 p-6">
         <p class="text-muted text-sm mb-1">Totaal opnames</p>
         <p class="text-3xl font-bold text-purple-600">{{ global_stats.total_recordings }}</p>
     </div>
-    <div class="bg-white rounded-2xl shadow-card border border-gray-100 p-6">
+    <div class="bg-surface rounded-2xl shadow-card border border-gray-100 p-6">
         <p class="text-muted text-sm mb-1">Totale uren</p>
         <p class="text-3xl font-bold text-purple-600">{{ global_stats.total_hours }}u</p>
     </div>
-    <div class="bg-white rounded-2xl shadow-card border border-gray-100 p-6">
+    <div class="bg-surface rounded-2xl shadow-card border border-gray-100 p-6">
         <p class="text-muted text-sm mb-1">Schijfruimte</p>
         <p class="text-3xl font-bold text-purple-600">{{ global_stats.total_storage_mb }} MB</p>
     </div>
@@ -27,12 +27,12 @@
 <div class="mb-6 flex flex-wrap gap-2">
     <span class="text-sm text-muted self-center mr-2">Filter op land:</span>
     <a href="/?country=ALL"
-       class="px-4 py-2 rounded-xl text-sm font-medium transition {% if selected_country == 'ALL' %}bg-purple-600 text-white shadow-sm{% else %}bg-white text-body hover:bg-gray-50 border border-gray-200{% endif %}">
+       class="px-4 py-2 rounded-xl text-sm font-medium transition {% if selected_country == 'ALL' %}bg-purple-600 text-white shadow-sm{% else %}bg-surface text-body hover:bg-gray-100 border border-gray-200{% endif %}">
         Alle
     </a>
     {% for c in countries %}
     <a href="/?country={{ c }}"
-       class="px-4 py-2 rounded-xl text-sm font-medium transition {% if selected_country == c %}bg-purple-600 text-white shadow-sm{% else %}bg-white text-body hover:bg-gray-50 border border-gray-200{% endif %}">
+       class="px-4 py-2 rounded-xl text-sm font-medium transition {% if selected_country == c %}bg-purple-600 text-white shadow-sm{% else %}bg-surface text-body hover:bg-gray-100 border border-gray-200{% endif %}">
         {{ c }}
     </a>
     {% endfor %}
@@ -40,13 +40,14 @@
 
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
     {% for station in stations %}
-    <div class="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden hover:border-purple-200 transition group">
+    <div class="bg-surface rounded-2xl shadow-card border border-gray-100 overflow-hidden hover:border-purple-200 transition group">
         <div class="p-6">
             <div class="flex items-start justify-between mb-4">
                 <div class="flex items-center gap-3">
                     {% if station.logo_url %}
                     <img src="{{ station.logo_url }}" alt="{{ station.name }}"
-                         class="w-14 h-14 rounded-2xl object-cover border border-gray-100 shadow-sm">
+                         class="station-logo w-14 h-14 rounded-2xl object-cover border border-gray-200 bg-gray-100 shadow-sm"
+                         draggable="false" oncontextmenu="return false">
                     {% else %}
                     <span class="text-4xl">{{ station.flag }}</span>
                     {% endif %}
@@ -86,7 +87,7 @@
         </div>
     </div>
     {% else %}
-    <div class="col-span-full text-center py-16 text-muted bg-white rounded-2xl border border-gray-100">
+    <div class="col-span-full text-center py-16 text-muted bg-surface rounded-2xl border border-gray-100">
         <p>Geen zenders gevonden voor dit filter.</p>
     </div>
     {% endfor %}
