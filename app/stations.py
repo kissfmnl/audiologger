@@ -2,7 +2,7 @@ import logging
 import re
 from datetime import date, datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, available_timezones
 
 import yaml
 from sqlmodel import Session, select
@@ -15,17 +15,69 @@ logger = logging.getLogger(__name__)
 
 STATIONS_CONFIG = BASE_DIR / "config" / "stations.yaml"
 STATION_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
+DEFAULT_TIMEZONE = "Europe/Amsterdam"
 
 COUNTRIES = [
-    {"code": "NL", "name": "Nederland", "flag": "🇳🇱", "timezone": "Europe/Amsterdam", "city": "Amsterdam"},
-    {"code": "BE", "name": "België", "flag": "🇧🇪", "timezone": "Europe/Brussels", "city": "Brussel"},
-    {"code": "DE", "name": "Duitsland", "flag": "🇩🇪", "timezone": "Europe/Berlin", "city": "Berlin"},
-    {"code": "FR", "name": "Frankrijk", "flag": "🇫🇷", "timezone": "Europe/Paris", "city": "Parijs"},
-    {"code": "UK", "name": "Verenigd Koninkrijk", "flag": "🇬🇧", "timezone": "Europe/London", "city": "Londen"},
-    {"code": "US", "name": "Verenigde Staten (ET)", "flag": "🇺🇸", "timezone": "America/New_York", "city": "New York"},
+    {"code": "NL", "name": "Nederland", "flag": "🇳🇱", "default_timezone": "Europe/Amsterdam"},
+    {"code": "BE", "name": "België", "flag": "🇧🇪", "default_timezone": "Europe/Brussels"},
+    {"code": "DE", "name": "Duitsland", "flag": "🇩🇪", "default_timezone": "Europe/Berlin"},
+    {"code": "FR", "name": "Frankrijk", "flag": "🇫🇷", "default_timezone": "Europe/Paris"},
+    {"code": "UK", "name": "Verenigd Koninkrijk", "flag": "🇬🇧", "default_timezone": "Europe/London"},
+    {"code": "IE", "name": "Ierland", "flag": "🇮🇪", "default_timezone": "Europe/Dublin"},
+    {"code": "ES", "name": "Spanje", "flag": "🇪🇸", "default_timezone": "Europe/Madrid"},
+    {"code": "IT", "name": "Italië", "flag": "🇮🇹", "default_timezone": "Europe/Rome"},
+    {"code": "PT", "name": "Portugal", "flag": "🇵🇹", "default_timezone": "Europe/Lisbon"},
+    {"code": "AT", "name": "Oostenrijk", "flag": "🇦🇹", "default_timezone": "Europe/Vienna"},
+    {"code": "CH", "name": "Zwitserland", "flag": "🇨🇭", "default_timezone": "Europe/Zurich"},
+    {"code": "SE", "name": "Zweden", "flag": "🇸🇪", "default_timezone": "Europe/Stockholm"},
+    {"code": "NO", "name": "Noorwegen", "flag": "🇳🇴", "default_timezone": "Europe/Oslo"},
+    {"code": "DK", "name": "Denemarken", "flag": "🇩🇰", "default_timezone": "Europe/Copenhagen"},
+    {"code": "PL", "name": "Polen", "flag": "🇵🇱", "default_timezone": "Europe/Warsaw"},
+    {"code": "US", "name": "Verenigde Staten", "flag": "🇺🇸", "default_timezone": "America/New_York"},
+    {"code": "CA", "name": "Canada", "flag": "🇨🇦", "default_timezone": "America/Toronto"},
+    {"code": "MX", "name": "Mexico", "flag": "🇲🇽", "default_timezone": "America/Mexico_City"},
+    {"code": "BR", "name": "Brazilië", "flag": "🇧🇷", "default_timezone": "America/Sao_Paulo"},
+    {"code": "AU", "name": "Australië", "flag": "🇦🇺", "default_timezone": "Australia/Sydney"},
+    {"code": "NZ", "name": "Nieuw-Zeeland", "flag": "🇳🇿", "default_timezone": "Pacific/Auckland"},
+    {"code": "JP", "name": "Japan", "flag": "🇯🇵", "default_timezone": "Asia/Tokyo"},
+    {"code": "CN", "name": "China", "flag": "🇨🇳", "default_timezone": "Asia/Shanghai"},
+    {"code": "IN", "name": "India", "flag": "🇮🇳", "default_timezone": "Asia/Kolkata"},
+    {"code": "AE", "name": "VAE", "flag": "🇦🇪", "default_timezone": "Asia/Dubai"},
+    {"code": "ZA", "name": "Zuid-Afrika", "flag": "🇿🇦", "default_timezone": "Africa/Johannesburg"},
 ]
 
 COUNTRY_MAP = {c["code"]: c for c in COUNTRIES}
+
+TIMEZONE_REGION_LABELS = {
+    "Africa": "Afrika",
+    "America": "Amerika",
+    "Antarctica": "Antarctica",
+    "Arctic": "Arctic",
+    "Asia": "Azië",
+    "Atlantic": "Atlantische Oceaan",
+    "Australia": "Australië",
+    "Europe": "Europa",
+    "Indian": "Indische Oceaan",
+    "Pacific": "Stille Oceaan",
+    "Etc": "Overig (UTC)",
+}
+
+
+def get_timezone_groups() -> list[dict]:
+    groups: dict[str, list[str]] = {}
+    for tz in sorted(available_timezones()):
+        region = tz.split("/")[0] if "/" in tz else "Etc"
+        groups.setdefault(region, []).append(tz)
+
+    ordered_regions = sorted(groups.keys(), key=lambda r: (r != "Europe", r != "America", r))
+    return [
+        {
+            "region": region,
+            "label": TIMEZONE_REGION_LABELS.get(region, region),
+            "timezones": groups[region],
+        }
+        for region in ordered_regions
+    ]
 
 
 def resolve_logo_file(logo_path: str | None) -> Path | None:
@@ -50,15 +102,33 @@ def logo_filename(station_id: str) -> str:
 
 def get_country_info(country_code: str) -> dict:
     code = country_code.upper()
-    return COUNTRY_MAP.get(code, COUNTRY_MAP["NL"])
+    if code in COUNTRY_MAP:
+        return COUNTRY_MAP[code]
+    return {
+        "code": code,
+        "name": code,
+        "flag": "📻",
+        "default_timezone": DEFAULT_TIMEZONE,
+    }
 
 
 def flag_for_country(country_code: str) -> str:
     return get_country_info(country_code)["flag"]
 
 
-def timezone_for_country(country_code: str) -> str:
-    return get_country_info(country_code)["timezone"]
+def default_timezone_for_country(country_code: str) -> str:
+    return get_country_info(country_code).get("default_timezone", DEFAULT_TIMEZONE)
+
+
+def validate_timezone(timezone: str) -> str:
+    tz = timezone.strip()
+    if not tz:
+        raise ValueError("Kies een tijdzone")
+    try:
+        ZoneInfo(tz)
+    except Exception as exc:
+        raise ValueError(f"Ongeldige tijdzone: {tz}") from exc
+    return tz
 
 
 def hours_to_cron(hours: str = "*") -> str:
@@ -88,9 +158,8 @@ def station_to_dict(station: Station) -> dict:
         "name": station.name,
         "country": country,
         "flag": info["flag"],
-        "timezone": station.timezone or info["timezone"],
+        "timezone": station.timezone or DEFAULT_TIMEZONE,
         "country_name": info["name"],
-        "country_city": info["city"],
         "url": station.url,
         "schedule_hours": "*",
         "schedule_cron": hours_to_cron(),
@@ -128,15 +197,21 @@ def migrate_station_schema() -> None:
         changed = False
         for station in stations:
             info = get_country_info(station.country)
-            if station.timezone != info["timezone"]:
-                station.timezone = info["timezone"]
-                changed = True
             if station.flag != info["flag"]:
                 station.flag = info["flag"]
                 changed = True
             if station.schedule_hours != "*":
                 station.schedule_hours = "*"
                 changed = True
+            if not station.timezone:
+                station.timezone = DEFAULT_TIMEZONE
+                changed = True
+            else:
+                try:
+                    ZoneInfo(station.timezone)
+                except Exception:
+                    station.timezone = default_timezone_for_country(station.country)
+                    changed = True
         if changed:
             session.commit()
 
@@ -161,7 +236,7 @@ def seed_stations_from_yaml() -> None:
                 name=item["name"],
                 country=country,
                 flag=info["flag"],
-                timezone=info["timezone"],
+                timezone=info.get("default_timezone", DEFAULT_TIMEZONE),
                 url=item["url"],
                 schedule_hours="*",
                 active=item.get("active", True),
@@ -225,10 +300,7 @@ def validate_url(url: str) -> None:
 
 
 def validate_country(country: str) -> str:
-    code = country.upper()
-    if code not in COUNTRY_MAP:
-        raise ValueError("Kies een geldig land uit de lijst")
-    return code
+    return country.upper().strip()[:2] or "NL"
 
 
 def parse_event_dates(
@@ -284,6 +356,7 @@ def create_station(
     station_id: str,
     name: str,
     country: str,
+    timezone: str,
     url: str,
     is_event: bool = False,
     event_start_date: str | None = None,
@@ -293,6 +366,7 @@ def create_station(
     validate_station_id(station_id)
     validate_url(url)
     country = validate_country(country)
+    timezone = validate_timezone(timezone)
     is_event, event_start_date, event_end_date = parse_event_dates(
         is_event, event_start_date, event_end_date
     )
@@ -306,7 +380,7 @@ def create_station(
         name=name.strip(),
         country=country,
         flag=info["flag"],
-        timezone=info["timezone"],
+        timezone=timezone,
         url=url.strip(),
         schedule_hours="*",
         is_event=is_event,
@@ -325,6 +399,7 @@ def update_station(
     station_id: str,
     name: str,
     country: str,
+    timezone: str,
     url: str,
     is_event: bool,
     event_start_date: str | None,
@@ -337,6 +412,7 @@ def update_station(
 
     validate_url(url)
     country = validate_country(country)
+    timezone = validate_timezone(timezone)
     is_event, event_start_date, event_end_date = parse_event_dates(
         is_event, event_start_date, event_end_date
     )
@@ -345,7 +421,7 @@ def update_station(
     station.name = name.strip()
     station.country = country
     station.flag = info["flag"]
-    station.timezone = info["timezone"]
+    station.timezone = timezone
     station.url = url.strip()
     station.schedule_hours = "*"
     station.is_event = is_event

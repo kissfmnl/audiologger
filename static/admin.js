@@ -17,29 +17,37 @@ function initSidebarNav() {
                 target.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
             document.querySelectorAll('[data-scroll-target]').forEach((el) => {
-                el.classList.remove('bg-purple-100', 'text-purple-700');
-                el.classList.add('text-body');
+                el.classList.remove('bg-accent-light', 'text-heading', 'border-slate-200');
+                el.classList.add('text-body', 'border-transparent');
             });
-            btn.classList.add('bg-purple-100', 'text-purple-700');
-            btn.classList.remove('text-body');
+            btn.classList.add('bg-accent-light', 'text-heading', 'border-slate-200');
+            btn.classList.remove('text-body', 'border-transparent');
         });
     });
 }
 
 function initCountrySelects() {
-    document.querySelectorAll('.country-select').forEach((select) => {
-        const formId = select.getAttribute('form') || select.closest('tr')?.querySelector('[form]')?.getAttribute('form');
-        const flagEl = document.querySelector(`.country-flag[data-for="${formId}"]`)
-            || select.closest('tr')?.querySelector('.country-flag');
+    document.querySelectorAll('.station-row').forEach((row) => {
+        const select = row.querySelector('.country-select');
+        const timezoneSelect = row.querySelector('.timezone-select');
+        const flagEl = row.querySelector('.country-flag');
+        if (!select) return;
 
-        const updateFlag = () => {
+        const updateFromCountry = () => {
             const option = select.selectedOptions[0];
             if (flagEl && option) {
                 flagEl.textContent = option.dataset.flag || '📻';
             }
+            if (timezoneSelect && option?.dataset.defaultTimezone) {
+                timezoneSelect.value = option.dataset.defaultTimezone;
+            }
         };
-        select.addEventListener('change', updateFlag);
-        updateFlag();
+
+        select.addEventListener('change', updateFromCountry);
+        if (flagEl) {
+            const option = select.selectedOptions[0];
+            if (option) flagEl.textContent = option.dataset.flag || '📻';
+        }
     });
 }
 
@@ -180,7 +188,7 @@ function initLogoModal() {
 
         const btn = document.querySelector(`.logo-open-btn[data-form-id="${activeFormId}"]`);
         if (btn) {
-            btn.innerHTML = `<img src="${dataUrl}" class="w-10 h-10 rounded-lg object-cover border border-purple-300" alt="Logo">`;
+            btn.innerHTML = `<img src="${dataUrl}" class="w-9 h-9 object-cover border border-slate-400" alt="Logo">`;
         }
 
         if (formSuffix !== 'new') {

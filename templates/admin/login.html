@@ -13,12 +13,10 @@
             theme: {
                 extend: {
                     colors: {
-                        page: '#EEF1F6',
-                        heading: '#111827',
-                        body: '#374151',
-                        muted: '#6B7280',
-                        faint: '#9CA3AF',
-                        purple: { 100: '#EDE9FE', 600: '#7C3AED', 700: '#6D28D9' },
+                        page: '#f1f5f9',
+                        heading: '#0f172a',
+                        body: '#334155',
+                        muted: '#64748b',
                     },
                     fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
                 },
@@ -26,41 +24,41 @@
         };
     </script>
 </head>
-<body class="bg-page text-body min-h-screen flex items-center justify-center px-4">
-    <div class="w-full max-w-md">
-        <div class="text-center mb-8">
-            <p class="text-lg font-semibold text-heading mb-1">ferryoomen</p>
-            <h1 class="text-2xl font-bold text-heading">AudioLogger Admin</h1>
-            <p class="text-muted text-sm mt-2">Log in om zenders te beheren</p>
+<body class="bg-page text-body min-h-screen flex items-center justify-center px-4 text-sm">
+    <div class="w-full max-w-sm">
+        <div class="mb-6 text-center">
+            <p class="text-xs font-semibold text-heading uppercase tracking-widest mb-2">ferryoomen</p>
+            <h1 class="text-lg font-semibold text-heading">AudioLogger Admin</h1>
+            <p class="text-muted text-xs mt-1">Inloggen om zenders te beheren</p>
         </div>
 
-        <form method="post" action="/admin/login" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-5">
+        <form method="post" action="/admin/login" class="bg-white border border-slate-200 p-6 space-y-4">
             {% if error %}
-            <div class="bg-red-50 border border-red-100 text-red-600 text-sm rounded-xl px-4 py-3">
+            <div class="border border-red-200 bg-red-50 text-red-700 text-xs px-3 py-2">
                 {{ error }}
             </div>
             {% endif %}
 
             <div>
-                <label for="username" class="block text-sm font-medium text-body mb-2">Gebruikersnaam</label>
+                <label for="username" class="block text-xs font-medium text-body mb-1.5">Gebruikersnaam</label>
                 <input type="text" id="username" name="username" required autocomplete="username"
-                       class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-heading focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-600">
+                       class="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-heading focus:outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
             </div>
 
             <div>
-                <label for="password" class="block text-sm font-medium text-body mb-2">Wachtwoord</label>
+                <label for="password" class="block text-xs font-medium text-body mb-1.5">Wachtwoord</label>
                 <input type="password" id="password" name="password" required autocomplete="current-password"
-                       class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-heading focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-600">
+                       class="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-heading focus:outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
             </div>
 
             <button type="submit"
-                    class="w-full py-3 rounded-xl bg-purple-600 text-white font-semibold hover:bg-purple-700 transition shadow-sm">
+                    class="w-full py-2 bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 transition border border-slate-800">
                 Inloggen
             </button>
         </form>
 
-        <p class="text-center mt-6">
-            <a href="/" class="text-sm text-muted hover:text-purple-600 transition">← Terug naar dashboard</a>
+        <p class="text-center mt-5">
+            <a href="/" class="text-xs text-muted hover:text-heading transition">← Dashboard</a>
         </p>
     </div>
 </body>

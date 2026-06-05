@@ -120,17 +120,3 @@ def setup_scheduler() -> BackgroundScheduler:
 def shutdown_scheduler() -> None:
     if scheduler.running:
         scheduler.shutdown(wait=False)
-
-
-def get_scheduler_jobs() -> list[dict]:
-    jobs = []
-    for job in scheduler.get_jobs():
-        next_run = job.next_run_time
-        jobs.append(
-            {
-                "id": job.id,
-                "name": job.name or job.id,
-                "next_run": next_run.strftime("%d-%m-%Y %H:%M") if next_run else "—",
-            }
-        )
-    return jobs
