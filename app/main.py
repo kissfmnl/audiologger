@@ -4,9 +4,10 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
@@ -21,7 +22,10 @@ from app.database import (
     init_db,
 )
 from app.editor import trim_recording
-from app.scheduler import get_station_by_id, load_stations, setup_scheduler, shutdown_scheduler
+from app.scheduler import setup_scheduler, shutdown_scheduler
+from app.stations import load_stations, get_station_by_id
+from app.admin_auth import get_session_middleware_kwargs
+from app.admin_routes import router as admin_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,6 +53,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AudioLogger", lifespan=lifespan)
+app.add_middleware(SessionMiddleware, **get_session_middleware_kwargs())
+app.include_router(admin_router)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
@@ -76,7 +82,7 @@ def dashboard(
     country: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
-    stations = load_stations()
+    stations = load_stations(active_only=False)
 
     if country and country.upper() != "ALL":
         stations = [s for s in stations if s["country"].upper() == country.upper()]
@@ -97,7 +103,7 @@ def dashboard(
         )
 
     global_stats = get_global_stats(session)
-    all_stations = load_stations()
+    all_stations = load_stations(active_only=False)
     countries = sorted({s["country"] for s in all_stations})
 
     return templates.TemplateResponse(
@@ -204,6 +210,20 @@ def api_trim(body: TrimRequest, session: Session = Depends(get_session)):
         filename=output_path.name,
         headers={"Content-Disposition": f'attachment; filename="{output_path.name}"'},
     )
+
+
+@app.get("/logos/{filename}")
+def serve_logo(filename: str):
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    from app.database import LOGOS_DIR
+
+    file_path = LOGOS_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Logo not found")
+
+    return FileResponse(path=file_path, media_type="image/jpeg")
 
 
 @app.get("/recordings/{filename}")

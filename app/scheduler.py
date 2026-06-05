@@ -1,36 +1,14 @@
 import logging
 from datetime import datetime
-from pathlib import Path
 
-import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.database import BASE_DIR
 from app.recorder import record_station
+from app.stations import hours_to_cron, load_stations
 
 logger = logging.getLogger(__name__)
-
-STATIONS_CONFIG = BASE_DIR / "config" / "stations.yaml"
 scheduler = BackgroundScheduler()
-
-
-def load_stations() -> list[dict]:
-    if not STATIONS_CONFIG.exists():
-        raise FileNotFoundError(f"Stations config not found: {STATIONS_CONFIG}")
-
-    with open(STATIONS_CONFIG, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-
-    stations = data.get("stations", [])
-    return [s for s in stations if s.get("active", True)]
-
-
-def get_station_by_id(station_id: str) -> dict | None:
-    for station in load_stations():
-        if station["id"] == station_id:
-            return station
-    return None
 
 
 def scheduled_record(station: dict) -> None:
@@ -47,14 +25,17 @@ def scheduled_record(station: dict) -> None:
         logger.exception("Scheduled recording failed for %s", station["id"])
 
 
-def setup_scheduler() -> BackgroundScheduler:
-    if scheduler.running:
-        return scheduler
+def reload_scheduler() -> BackgroundScheduler:
+    stations = load_stations(active_only=True)
 
-    stations = load_stations()
+    if scheduler.running:
+        for job in scheduler.get_jobs():
+            scheduler.remove_job(job.id)
+    else:
+        scheduler.start()
 
     for station in stations:
-        cron_expr = station.get("schedule", "0 * * * *")
+        cron_expr = hours_to_cron(station["schedule_hours"])
         parts = cron_expr.split()
         if len(parts) != 5:
             logger.error(
@@ -81,16 +62,33 @@ def setup_scheduler() -> BackgroundScheduler:
             misfire_grace_time=300,
         )
         logger.info(
-            "Scheduled %s (%s) with cron: %s",
+            "Scheduled %s (%s) at whole hours: %s",
             station["name"],
             station["id"],
-            cron_expr,
+            station["schedule_label"],
         )
 
-    scheduler.start()
     return scheduler
+
+
+def setup_scheduler() -> BackgroundScheduler:
+    return reload_scheduler()
 
 
 def shutdown_scheduler() -> None:
     if scheduler.running:
         scheduler.shutdown(wait=False)
+
+
+def get_scheduler_jobs() -> list[dict]:
+    jobs = []
+    for job in scheduler.get_jobs():
+        next_run = job.next_run_time
+        jobs.append(
+            {
+                "id": job.id,
+                "name": job.name or job.id,
+                "next_run": next_run.strftime("%d-%m-%Y %H:%M") if next_run else "—",
+            }
+        )
+    return jobs

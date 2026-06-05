@@ -43,7 +43,12 @@
         <div class="p-6">
             <div class="flex items-start justify-between mb-4">
                 <div class="flex items-center gap-3">
+                    {% if station.logo_url %}
+                    <img src="{{ station.logo_url }}" alt="{{ station.name }}"
+                         class="w-14 h-14 rounded-xl object-cover border border-white/10">
+                    {% else %}
                     <span class="text-4xl">{{ station.flag }}</span>
+                    {% endif %}
                     <div>
                         <h2 class="text-lg font-semibold">{{ station.name }}</h2>
                         <p class="text-sm text-muted">{{ station.country }}</p>

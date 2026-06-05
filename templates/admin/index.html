@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Admin — AudioLogger{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-wrap items-center justify-between gap-4 mb-8">
+    <div>
+        <h1 class="text-3xl font-bold mb-1">Admin</h1>
+        <p class="text-muted">Zenders beheren en scheduler instellen</p>
+    </div>
+    <form method="post" action="/admin/logout">
+        <button type="submit" class="px-4 py-2 rounded-lg border border-white/10 text-muted hover:text-white transition text-sm">
+            Uitloggen
+        </button>
+    </form>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+    <div class="bg-card rounded-xl border border-white/5 p-6 lg:col-span-1">
+        <h2 class="text-lg font-semibold mb-4">Scheduler</h2>
+        <p class="text-sm text-muted mb-4">Alle opnames starten op het hele uur (:00).</p>
+        {% if scheduler_jobs %}
+        <ul class="space-y-2 text-sm">
+            {% for job in scheduler_jobs %}
+            <li class="flex justify-between gap-2 border-b border-white/5 pb-2">
+                <span class="text-muted">{{ job.id.replace('record_', '') }}</span>
+                <span>{{ job.next_run }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-sm text-muted">Geen actieve jobs.</p>
+        {% endif %}
+    </div>
+
+    <div class="bg-card rounded-xl border border-white/5 p-6 lg:col-span-2">
+        <h2 class="text-lg font-semibold mb-4">Nieuwe zender</h2>
+        {% include "admin/station_form.html" %}
+    </div>
+</div>
+
+<div class="bg-card rounded-xl border border-white/5 overflow-hidden">
+    <div class="px-6 py-4 border-b border-white/10">
+        <h2 class="text-lg font-semibold">Zenders ({{ stations|length }})</h2>
+    </div>
+
+    {% if stations %}
+    <div class="divide-y divide-white/5">
+        {% for station in stations %}
+        <div class="p-6">
+            <div class="flex flex-wrap gap-4 items-start justify-between mb-4">
+                <div class="flex items-center gap-4">
+                    {% if station.logo_url %}
+                    <img src="{{ station.logo_url }}?v={{ station.id }}" alt="{{ station.name }}"
+                         class="w-16 h-16 rounded-xl object-cover border border-white/10">
+                    {% else %}
+                    <div class="w-16 h-16 rounded-xl bg-dark border border-white/10 flex items-center justify-center text-3xl">
+                        {{ station.flag }}
+                    </div>
+                    {% endif %}
+                    <div>
+                        <h3 class="font-semibold text-lg">{{ station.name }}</h3>
+                        <p class="text-sm text-muted">{{ station.id }} · {{ station.country }}</p>
+                        <p class="text-sm text-accent mt-1">{{ station.schedule_label }}</p>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    {% if station.active %}
+                    <span class="px-2 py-1 text-xs rounded-full bg-accent/20 text-accent">Actief</span>
+                    {% else %}
+                    <span class="px-2 py-1 text-xs rounded-full bg-red-500/20 text-red-400">Inactief</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <details class="group">
+                <summary class="cursor-pointer text-sm text-accent hover:underline mb-4">Bewerken</summary>
+                <div class="border-t border-white/10 pt-4">
+                    {% with form_id='edit-' ~ station.id, form_action='/admin/stations/' ~ station.id ~ '/edit', station=station, is_edit=true %}
+                    {% include "admin/station_form.html" %}
+                    {% endwith %}
+                </div>
+            </details>
+
+            <form method="post" action="/admin/stations/{{ station.id }}/delete" class="mt-4"
+                  onsubmit="return confirm('Zender {{ station.name }} verwijderen? Opnames blijven bewaard.');">
+                <button type="submit" class="text-sm text-red-400 hover:text-red-300 transition">
+                    Zender verwijderen
+                </button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="p-12 text-center text-muted">Nog geen zenders. Voeg er een toe hierboven.</div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
+<script src="/static/admin.js"></script>
+{% endblock %}

@@ -2,12 +2,13 @@ from pathlib import Path
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models import Recording
+from app.models import Recording, Station
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = BASE_DIR / "audiologger.db"
 RECORDINGS_DIR = BASE_DIR / "recordings"
 LOGS_DIR = RECORDINGS_DIR / "logs"
+LOGOS_DIR = RECORDINGS_DIR / "logos"
 TRIMMED_DIR = BASE_DIR / "static" / "trimmed"
 
 DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
@@ -23,7 +24,12 @@ def init_db() -> None:
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     TRIMMED_DIR.mkdir(parents=True, exist_ok=True)
+    LOGOS_DIR.mkdir(parents=True, exist_ok=True)
     SQLModel.metadata.create_all(engine)
+
+    from app.stations import seed_stations_from_yaml
+
+    seed_stations_from_yaml()
 
 
 def get_session():

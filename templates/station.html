@@ -12,7 +12,12 @@
     </a>
 
     <div class="flex items-center gap-4 mb-2">
+        {% if station.logo_url %}
+        <img src="{{ station.logo_url }}" alt="{{ station.name }}"
+             class="w-20 h-20 rounded-xl object-cover border border-white/10">
+        {% else %}
         <span class="text-5xl">{{ station.flag }}</span>
+        {% endif %}
         <div>
             <h1 class="text-3xl font-bold">{{ station.name }}</h1>
             <p class="text-muted">{{ station.country }} &middot; {{ stats.total_recordings }} opnames &middot; {{ stats.total_storage_mb }} MB</p>
