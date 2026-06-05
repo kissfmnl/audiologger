@@ -4,62 +4,62 @@
 
     {% if not is_edit %}
     <div>
-        <label class="block text-sm text-muted mb-2">ID (uniek, bijv. radio1_nl)</label>
+        <label class="block text-sm font-medium text-body mb-2">ID (uniek, bijv. radio1_nl)</label>
         <input type="text" name="station_id" required pattern="[a-z0-9_]+"
                placeholder="radio1_nl"
-               class="w-full bg-dark border border-white/10 rounded-lg px-4 py-2.5 focus:outline-none focus:border-accent">
+               class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-heading focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-600">
     </div>
     {% endif %}
 
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-            <label class="block text-sm text-muted mb-2">Naam</label>
+            <label class="block text-sm font-medium text-body mb-2">Naam</label>
             <input type="text" name="name" required value="{{ station.name if station else '' }}"
-                   class="w-full bg-dark border border-white/10 rounded-lg px-4 py-2.5 focus:outline-none focus:border-accent">
+                   class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-heading focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-600">
         </div>
         <div>
-            <label class="block text-sm text-muted mb-2">Land (NL, BE, DE, US…)</label>
+            <label class="block text-sm font-medium text-body mb-2">Land (NL, BE, DE, US…)</label>
             <input type="text" name="country" required maxlength="2" value="{{ station.country if station else 'NL' }}"
-                   class="w-full bg-dark border border-white/10 rounded-lg px-4 py-2.5 uppercase focus:outline-none focus:border-accent">
+                   class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 uppercase text-heading focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-600">
         </div>
     </div>
 
     <div>
-        <label class="block text-sm text-muted mb-2">Stream URL</label>
+        <label class="block text-sm font-medium text-body mb-2">Stream URL</label>
         <input type="url" name="url" required value="{{ station.url if station else '' }}"
-               class="w-full bg-dark border border-white/10 rounded-lg px-4 py-2.5 focus:outline-none focus:border-accent">
+               class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-heading focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-600">
     </div>
 
     <div>
-        <label class="block text-sm text-muted mb-2">Vlag (emoji, optioneel)</label>
+        <label class="block text-sm font-medium text-body mb-2">Vlag (emoji, optioneel)</label>
         <input type="text" name="flag" maxlength="4" value="{{ station.flag if station else '' }}"
                placeholder="🇳🇱"
-               class="w-full bg-dark border border-white/10 rounded-lg px-4 py-2.5 focus:outline-none focus:border-accent">
+               class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-heading focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-600">
     </div>
 
     <div>
-        <label class="block text-sm text-muted mb-3">Opnameschema (altijd op :00)</label>
+        <label class="block text-sm font-medium text-body mb-3">Opnameschema (altijd op :00)</label>
         <div class="space-y-3">
             <label class="flex items-center gap-3 cursor-pointer">
                 <input type="radio" name="schedule_mode" value="hourly"
-                       class="accent-accent"
+                       class="accent-purple-600"
                        {% if not station or station.schedule_hours == '*' %}checked{% endif %}>
-                <span>Elk heel uur</span>
+                <span class="text-sm">Elk heel uur</span>
             </label>
             <label class="flex items-center gap-3 cursor-pointer">
                 <input type="radio" name="schedule_mode" value="custom"
-                       class="accent-accent"
+                       class="accent-purple-600"
                        {% if station and station.schedule_hours != '*' %}checked{% endif %}>
-                <span>Specifieke uren</span>
+                <span class="text-sm">Specifieke uren</span>
             </label>
-            <div class="schedule-hours-grid grid grid-cols-6 sm:grid-cols-8 gap-2 pl-1">
+            <div class="schedule-hours-grid grid grid-cols-6 sm:grid-cols-8 gap-2">
                 {% set selected_hours = station.schedule_hours.split(',') if station and station.schedule_hours != '*' else [] %}
                 {% for hour in range(24) %}
-                <label class="flex items-center gap-1.5 text-xs cursor-pointer bg-dark rounded px-2 py-1.5 border border-white/5">
+                <label class="flex items-center gap-1.5 text-xs cursor-pointer bg-gray-50 rounded-lg px-2 py-2 border border-gray-200 hover:border-purple-200 transition">
                     <input type="checkbox" name="schedule_hours" value="{{ hour }}"
-                           class="accent-accent schedule-hour-checkbox"
+                           class="accent-purple-600 schedule-hour-checkbox"
                            {% if hour|string in selected_hours %}checked{% endif %}>
-                    <span>{{ '%02d'|format(hour) }}:00</span>
+                    <span class="text-body">{{ '%02d'|format(hour) }}:00</span>
                 </label>
                 {% endfor %}
             </div>
@@ -67,40 +67,40 @@
     </div>
 
     <div>
-        <label class="block text-sm text-muted mb-2">Logo (1080 × 1080 px)</label>
+        <label class="block text-sm font-medium text-body mb-2">Logo (1080 × 1080 px)</label>
         <input type="file" accept="image/jpeg,image/png,image/webp"
-               class="logo-file-input w-full text-sm text-muted file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-accent/20 file:text-accent">
+               class="logo-file-input w-full text-sm text-muted file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-purple-100 file:text-purple-700 file:font-medium">
         <input type="hidden" name="logo_data" class="logo-data-input">
 
         <div class="logo-crop-area hidden mt-4">
-            <div class="bg-dark rounded-lg overflow-hidden max-h-80">
+            <div class="bg-gray-100 rounded-xl overflow-hidden max-h-80 border border-gray-200">
                 <img class="logo-crop-image max-w-full" alt="Logo crop">
             </div>
             <div class="mt-3 flex flex-wrap items-center gap-4">
                 <label class="text-sm text-muted flex items-center gap-2 flex-1 min-w-[200px]">
                     Zoom
                     <input type="range" min="0.1" max="3" step="0.01" value="1"
-                           class="logo-zoom-slider flex-1 accent-accent">
+                           class="logo-zoom-slider flex-1 accent-purple-600">
                 </label>
-                <button type="button" class="logo-apply-btn px-4 py-2 rounded-lg bg-accent/20 text-accent text-sm hover:bg-accent hover:text-dark transition">
+                <button type="button" class="logo-apply-btn px-4 py-2 rounded-xl bg-sky-100 text-sky-700 text-sm font-medium hover:bg-sky-200 transition">
                     Logo toepassen
                 </button>
             </div>
             <div class="logo-preview-wrap hidden mt-4 flex items-center gap-4">
-                <img class="logo-preview w-20 h-20 rounded-xl object-cover border border-accent/30" alt="Preview">
-                <span class="text-sm text-accent">Logo klaar (1080 × 1080)</span>
+                <img class="logo-preview w-20 h-20 rounded-2xl object-cover border-2 border-purple-200" alt="Preview">
+                <span class="text-sm text-purple-600 font-medium">Logo klaar (1080 × 1080)</span>
             </div>
         </div>
     </div>
 
     <label class="flex items-center gap-3 cursor-pointer">
-        <input type="checkbox" name="active" class="accent-accent"
+        <input type="checkbox" name="active" class="accent-purple-600 rounded"
                {% if not station or station.active %}checked{% endif %}>
-        <span class="text-sm">Zender actief</span>
+        <span class="text-sm text-body">Zender actief</span>
     </label>
 
     <button type="submit"
-            class="px-5 py-2.5 rounded-lg bg-accent text-dark font-medium hover:bg-accent/90 transition">
+            class="px-5 py-2.5 rounded-xl bg-purple-600 text-white font-medium hover:bg-purple-700 transition shadow-sm">
         {{ 'Opslaan' if is_edit else 'Zender toevoegen' }}
     </button>
 </form>

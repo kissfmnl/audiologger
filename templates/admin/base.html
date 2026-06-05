@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Admin — AudioLogger{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        page: '#EEF1F6',
+                        sidebar: '#FFFFFF',
+                        surface: '#FFFFFF',
+                        heading: '#111827',
+                        body: '#374151',
+                        muted: '#6B7280',
+                        faint: '#9CA3AF',
+                        purple: {
+                            50: '#F5F3FF',
+                            100: '#EDE9FE',
+                            600: '#7C3AED',
+                            700: '#6D28D9',
+                        },
+                    },
+                    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+                    boxShadow: {
+                        card: '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06)',
+                    },
+                },
+            },
+        };
+    </script>
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        details > summary { list-style: none; }
+        details > summary::-webkit-details-marker { display: none; }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-page text-body min-h-screen">
+    <div class="flex min-h-screen">
+        <aside class="hidden lg:flex w-64 shrink-0 flex-col bg-sidebar border-r border-gray-200/80 px-4 py-6">
+            <div class="px-3 mb-8">
+                <a href="/admin" class="text-lg font-semibold text-heading tracking-tight">ferryoomen</a>
+            </div>
+
+            <nav class="flex-1 space-y-6 overflow-y-auto">
+                <div>
+                    <p class="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-faint">Radio</p>
+                    <ul class="space-y-1">
+                        <li>
+                            <a href="/admin"
+                               class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition
+                               {% if active_nav == 'stations' %}bg-purple-100 text-purple-700{% else %}text-body hover:bg-gray-50{% endif %}">
+                                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+                                </svg>
+                                Zenders beheren
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/admin#scheduler"
+                               class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-body hover:bg-gray-50 transition">
+                                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                Scheduler
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+                <div>
+                    <p class="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-faint">Archief</p>
+                    <ul class="space-y-1">
+                        <li>
+                            <a href="/"
+                               class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-body hover:bg-gray-50 transition">
+                                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
+                                </svg>
+                                Dashboard
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+                <div>
+                    <p class="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-faint">Systeem</p>
+                    <form method="post" action="/admin/logout">
+                        <button type="submit"
+                                class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-body hover:bg-gray-50 transition text-left">
+                            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                            </svg>
+                            Uitloggen
+                        </button>
+                    </form>
+                </div>
+            </nav>
+        </aside>
+
+        <div class="flex-1 min-w-0">
+            <header class="lg:hidden bg-sidebar border-b border-gray-200/80 px-4 py-4 flex items-center justify-between">
+                <span class="font-semibold text-heading">ferryoomen</span>
+                <a href="/" class="text-sm text-purple-600 font-medium">Dashboard</a>
+            </header>
+
+            <main class="px-4 sm:px-8 py-6 sm:py-8">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

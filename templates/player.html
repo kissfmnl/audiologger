@@ -9,7 +9,7 @@
 
 {% block content %}
 <div class="mb-6">
-    <a href="/station/{{ recording.station_id }}" class="text-sm text-muted hover:text-accent transition inline-flex items-center gap-1 mb-4">
+    <a href="/station/{{ recording.station_id }}" class="text-sm text-muted hover:text-purple-600 transition inline-flex items-center gap-1 mb-4">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
         </svg>
@@ -17,9 +17,14 @@
     </a>
 
     <div class="flex items-center gap-3 mb-2">
-        {% if station %}<span class="text-3xl">{{ station.flag }}</span>{% endif %}
+        {% if station and station.logo_url %}
+        <img src="{{ station.logo_url }}" alt="{{ recording.station_name }}"
+             class="w-14 h-14 rounded-2xl object-cover border border-gray-100 shadow-sm">
+        {% elif station %}
+        <span class="text-3xl">{{ station.flag }}</span>
+        {% endif %}
         <div>
-            <h1 class="text-2xl font-bold">{{ recording.station_name }}</h1>
+            <h1 class="text-2xl font-bold text-heading">{{ recording.station_name }}</h1>
             <p class="text-muted">
                 {{ recording.start_time.strftime('%d-%m-%Y %H:%M') }} – {{ recording.end_time.strftime('%H:%M') }}
                 &middot; {{ recording.file_size_mb }} MB
@@ -28,12 +33,12 @@
     </div>
 </div>
 
-<div class="bg-card rounded-xl border border-white/5 p-6 mb-6">
-    <div id="waveform" class="mb-4 rounded-lg overflow-hidden"></div>
+<div class="bg-white rounded-2xl shadow-card border border-gray-100 p-6 mb-6">
+    <div id="waveform" class="mb-4 rounded-xl overflow-hidden bg-gray-50"></div>
 
     <div class="flex flex-wrap items-center gap-4 mb-4">
         <button id="playBtn"
-                class="w-12 h-12 rounded-full bg-accent text-dark flex items-center justify-center hover:bg-accent/90 transition">
+                class="w-12 h-12 rounded-full bg-purple-600 text-white flex items-center justify-center hover:bg-purple-700 transition shadow-sm">
             <svg id="playIcon" class="w-5 h-5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M8 5v14l11-7z"/>
             </svg>
@@ -41,35 +46,35 @@
                 <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
             </svg>
         </button>
-        <div class="text-sm font-mono">
+        <div class="text-sm font-mono text-heading">
             <span id="currentTime">0:00</span>
             <span class="text-muted"> / </span>
             <span id="totalTime">0:00</span>
         </div>
     </div>
 
-    <div class="border-t border-white/10 pt-4">
-        <h3 class="text-sm font-medium mb-3 text-muted">Selecteer fragment om te knippen</h3>
-        <p class="text-xs text-muted mb-4">Sleep over de waveform om een begin- en eindpunt te selecteren, of klik op "Selecteer huidige positie".</p>
+    <div class="border-t border-gray-100 pt-4">
+        <h3 class="text-sm font-semibold mb-2 text-heading">Selecteer fragment om te knippen</h3>
+        <p class="text-xs text-muted mb-4">Sleep over de waveform om een begin- en eindpunt te selecteren.</p>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-            <div class="bg-dark rounded-lg p-4">
+            <div class="bg-gray-50 rounded-xl p-4 border border-gray-100">
                 <p class="text-xs text-muted mb-1">Begin</p>
-                <p id="regionStart" class="font-mono text-accent">—</p>
+                <p id="regionStart" class="font-mono text-purple-600 font-medium">—</p>
             </div>
-            <div class="bg-dark rounded-lg p-4">
+            <div class="bg-gray-50 rounded-xl p-4 border border-gray-100">
                 <p class="text-xs text-muted mb-1">Einde</p>
-                <p id="regionEnd" class="font-mono text-accent">—</p>
+                <p id="regionEnd" class="font-mono text-purple-600 font-medium">—</p>
             </div>
         </div>
 
         <div class="flex flex-wrap gap-3">
             <button id="trimBtn" disabled
-                    class="px-5 py-2.5 rounded-lg bg-accent text-dark font-medium hover:bg-accent/90 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                    class="px-5 py-2.5 rounded-xl bg-purple-600 text-white font-medium hover:bg-purple-700 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm">
                 Knip fragment
             </button>
             <a href="{{ audio_url }}" download
-               class="px-5 py-2.5 rounded-lg bg-white/5 text-muted hover:text-white transition font-medium">
+               class="px-5 py-2.5 rounded-xl bg-gray-100 text-body hover:bg-gray-200 transition font-medium">
                 Download origineel
             </a>
         </div>
@@ -94,16 +99,14 @@
     let activeRegion = null;
 
     const regionsPlugin = WaveSurfer.Regions.create({
-        dragSelection: {
-            slop: 5,
-        },
+        dragSelection: { slop: 5 },
     });
 
     const wavesurfer = WaveSurfer.create({
         container: '#waveform',
-        waveColor: '#333333',
-        progressColor: '#00d4aa',
-        cursorColor: '#00d4aa',
+        waveColor: '#D1D5DB',
+        progressColor: '#7C3AED',
+        cursorColor: '#6D28D9',
         barWidth: 2,
         barGap: 1,
         barRadius: 2,
@@ -125,9 +128,7 @@
     });
 
     regionsPlugin.on('region-created', (region) => {
-        if (activeRegion) {
-            activeRegion.remove();
-        }
+        if (activeRegion) activeRegion.remove();
         activeRegion = region;
         regionStart = region.start;
         regionEnd = region.end;
@@ -147,9 +148,7 @@
     const playIcon = document.getElementById('playIcon');
     const pauseIcon = document.getElementById('pauseIcon');
 
-    playBtn.addEventListener('click', () => {
-        wavesurfer.playPause();
-    });
+    playBtn.addEventListener('click', () => wavesurfer.playPause());
 
     wavesurfer.on('play', () => {
         playIcon.classList.add('hidden');
@@ -198,10 +197,10 @@
             URL.revokeObjectURL(url);
 
             statusEl.textContent = 'Fragment gedownload!';
-            statusEl.className = 'text-sm mt-3 text-accent';
+            statusEl.className = 'text-sm mt-3 text-purple-600 font-medium';
         } catch (err) {
             statusEl.textContent = 'Fout: ' + err.message;
-            statusEl.className = 'text-sm mt-3 text-red-400';
+            statusEl.className = 'text-sm mt-3 text-red-500';
         } finally {
             trimBtn.disabled = false;
         }

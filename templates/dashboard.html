@@ -4,34 +4,35 @@
 
 {% block content %}
 <div class="mb-8">
-    <h1 class="text-3xl font-bold mb-2">Dashboard</h1>
+    <p class="text-sm text-muted mb-1">Archief · Overzicht</p>
+    <h1 class="text-3xl font-bold text-heading mb-1">Dashboard</h1>
     <p class="text-muted">Overzicht van alle radiozenders en opnames</p>
 </div>
 
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-    <div class="bg-card rounded-xl p-6 border border-white/5">
+    <div class="bg-white rounded-2xl shadow-card border border-gray-100 p-6">
         <p class="text-muted text-sm mb-1">Totaal opnames</p>
-        <p class="text-3xl font-bold text-accent">{{ global_stats.total_recordings }}</p>
+        <p class="text-3xl font-bold text-purple-600">{{ global_stats.total_recordings }}</p>
     </div>
-    <div class="bg-card rounded-xl p-6 border border-white/5">
+    <div class="bg-white rounded-2xl shadow-card border border-gray-100 p-6">
         <p class="text-muted text-sm mb-1">Totale uren</p>
-        <p class="text-3xl font-bold text-accent">{{ global_stats.total_hours }}u</p>
+        <p class="text-3xl font-bold text-purple-600">{{ global_stats.total_hours }}u</p>
     </div>
-    <div class="bg-card rounded-xl p-6 border border-white/5">
+    <div class="bg-white rounded-2xl shadow-card border border-gray-100 p-6">
         <p class="text-muted text-sm mb-1">Schijfruimte</p>
-        <p class="text-3xl font-bold text-accent">{{ global_stats.total_storage_mb }} MB</p>
+        <p class="text-3xl font-bold text-purple-600">{{ global_stats.total_storage_mb }} MB</p>
     </div>
 </div>
 
 <div class="mb-6 flex flex-wrap gap-2">
     <span class="text-sm text-muted self-center mr-2">Filter op land:</span>
     <a href="/?country=ALL"
-       class="px-4 py-2 rounded-lg text-sm font-medium transition {% if selected_country == 'ALL' %}bg-accent text-dark{% else %}bg-card text-muted hover:text-white border border-white/10{% endif %}">
+       class="px-4 py-2 rounded-xl text-sm font-medium transition {% if selected_country == 'ALL' %}bg-purple-600 text-white shadow-sm{% else %}bg-white text-body hover:bg-gray-50 border border-gray-200{% endif %}">
         Alle
     </a>
     {% for c in countries %}
     <a href="/?country={{ c }}"
-       class="px-4 py-2 rounded-lg text-sm font-medium transition {% if selected_country == c %}bg-accent text-dark{% else %}bg-card text-muted hover:text-white border border-white/10{% endif %}">
+       class="px-4 py-2 rounded-xl text-sm font-medium transition {% if selected_country == c %}bg-purple-600 text-white shadow-sm{% else %}bg-white text-body hover:bg-gray-50 border border-gray-200{% endif %}">
         {{ c }}
     </a>
     {% endfor %}
@@ -39,53 +40,53 @@
 
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
     {% for station in stations %}
-    <div class="bg-card rounded-xl border border-white/5 overflow-hidden hover:border-accent/30 transition group">
+    <div class="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden hover:border-purple-200 transition group">
         <div class="p-6">
             <div class="flex items-start justify-between mb-4">
                 <div class="flex items-center gap-3">
                     {% if station.logo_url %}
                     <img src="{{ station.logo_url }}" alt="{{ station.name }}"
-                         class="w-14 h-14 rounded-xl object-cover border border-white/10">
+                         class="w-14 h-14 rounded-2xl object-cover border border-gray-100 shadow-sm">
                     {% else %}
                     <span class="text-4xl">{{ station.flag }}</span>
                     {% endif %}
                     <div>
-                        <h2 class="text-lg font-semibold">{{ station.name }}</h2>
+                        <h2 class="text-lg font-semibold text-heading">{{ station.name }}</h2>
                         <p class="text-sm text-muted">{{ station.country }}</p>
                     </div>
                 </div>
                 {% if station.active %}
-                <span class="px-2 py-1 text-xs rounded-full bg-accent/20 text-accent">Actief</span>
+                <span class="px-2.5 py-1 text-xs font-medium rounded-lg bg-purple-100 text-purple-700">Actief</span>
                 {% else %}
-                <span class="px-2 py-1 text-xs rounded-full bg-red-500/20 text-red-400">Inactief</span>
+                <span class="px-2.5 py-1 text-xs font-medium rounded-lg bg-red-50 text-red-600">Inactief</span>
                 {% endif %}
             </div>
 
             <div class="space-y-2 text-sm">
                 <div class="flex justify-between">
                     <span class="text-muted">Laatste opname</span>
-                    <span>{{ station.last_recording_date }}</span>
+                    <span class="text-heading">{{ station.last_recording_date }}</span>
                 </div>
                 <div class="flex justify-between">
                     <span class="text-muted">Aantal opnames</span>
-                    <span class="font-medium">{{ station.total_recordings }}</span>
+                    <span class="font-medium text-heading">{{ station.total_recordings }}</span>
                 </div>
                 <div class="flex justify-between">
                     <span class="text-muted">Opslag</span>
-                    <span class="font-medium">{{ station.total_storage_mb }} MB</span>
+                    <span class="font-medium text-heading">{{ station.total_storage_mb }} MB</span>
                 </div>
             </div>
         </div>
 
         <div class="px-6 pb-6">
             <a href="/station/{{ station.id }}"
-               class="block w-full text-center py-3 rounded-lg bg-accent/10 text-accent font-medium hover:bg-accent hover:text-dark transition">
+               class="block w-full text-center py-3 rounded-xl bg-purple-100 text-purple-700 font-medium hover:bg-purple-600 hover:text-white transition">
                 Bekijk opnames
             </a>
         </div>
     </div>
     {% else %}
-    <div class="col-span-full text-center py-16 text-muted">
+    <div class="col-span-full text-center py-16 text-muted bg-white rounded-2xl border border-gray-100">
         <p>Geen zenders gevonden voor dit filter.</p>
     </div>
     {% endfor %}

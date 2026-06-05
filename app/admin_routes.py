@@ -1,5 +1,6 @@
 import base64
 import re
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -21,6 +22,17 @@ from app.stations import (
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+DUTCH_DAYS = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
+DUTCH_MONTHS = [
+    "januari", "februari", "maart", "april", "mei", "juni",
+    "juli", "augustus", "september", "oktober", "november", "december",
+]
+
+
+def format_dutch_date(dt: datetime | None = None) -> str:
+    dt = dt or datetime.now()
+    return f"{DUTCH_DAYS[dt.weekday()]} {dt.day} {DUTCH_MONTHS[dt.month - 1]} {dt.year}"
 
 
 def admin_redirect_if_needed(request: Request):
@@ -74,6 +86,8 @@ def admin_dashboard(request: Request, session: Session = Depends(get_session)):
         {
             "stations": stations,
             "scheduler_jobs": get_scheduler_jobs(),
+            "date_label": format_dutch_date(),
+            "active_nav": "stations",
         },
     )
 
