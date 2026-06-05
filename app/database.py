@@ -1,15 +1,20 @@
+import logging
+import shutil
 from pathlib import Path
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models import Recording, Station
 
+logger = logging.getLogger(__name__)
+
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATABASE_PATH = BASE_DIR / "audiologger.db"
 RECORDINGS_DIR = BASE_DIR / "recordings"
 LOGS_DIR = RECORDINGS_DIR / "logs"
 LOGOS_DIR = RECORDINGS_DIR / "logos"
 TRIMMED_DIR = BASE_DIR / "static" / "trimmed"
+LEGACY_DATABASE_PATH = BASE_DIR / "audiologger.db"
+DATABASE_PATH = RECORDINGS_DIR / "audiologger.db"
 
 DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 
@@ -20,17 +25,27 @@ engine = create_engine(
 )
 
 
+def migrate_database_location() -> None:
+    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+    if DATABASE_PATH.exists() or not LEGACY_DATABASE_PATH.exists():
+        return
+    shutil.copy2(LEGACY_DATABASE_PATH, DATABASE_PATH)
+    logger.info("Migrated database to persistent volume: %s", DATABASE_PATH)
+
+
 def init_db() -> None:
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     TRIMMED_DIR.mkdir(parents=True, exist_ok=True)
     LOGOS_DIR.mkdir(parents=True, exist_ok=True)
+
+    migrate_database_location()
     SQLModel.metadata.create_all(engine)
 
-    from app.stations import migrate_station_schema, seed_stations_from_yaml
+    from app.stations import migrate_station_schema, reconcile_logos
 
-    seed_stations_from_yaml()
     migrate_station_schema()
+    reconcile_logos()
 
 
 def get_session():

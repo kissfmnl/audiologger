@@ -165,7 +165,7 @@ function initLogoModal() {
         if (cropper) cropper.zoomTo(parseFloat(zoomSlider.value));
     });
 
-    applyBtn.addEventListener('click', () => {
+    applyBtn.addEventListener('click', async () => {
         if (!cropper || !activeFormId) return;
         const canvas = cropper.getCroppedCanvas({
             width: 1080,
@@ -174,9 +174,6 @@ function initLogoModal() {
             imageSmoothingQuality: 'high',
         });
         const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-        const hidden = document.querySelector(`#logo-data-${activeFormId.replace('form-', '')}`)
-            || document.getElementById(`logo-data-${activeFormId.replace('form-', '')}`);
-
         const formSuffix = activeFormId.replace('form-', '');
         const input = document.getElementById(`logo-data-${formSuffix}`);
         if (input) input.value = dataUrl;
@@ -185,6 +182,31 @@ function initLogoModal() {
         if (btn) {
             btn.innerHTML = `<img src="${dataUrl}" class="w-10 h-10 rounded-lg object-cover border border-purple-300" alt="Logo">`;
         }
+
+        if (formSuffix !== 'new') {
+            applyBtn.disabled = true;
+            applyBtn.textContent = 'Opslaan…';
+            try {
+                const response = await fetch(`/admin/stations/${formSuffix}/logo`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'fetch',
+                    },
+                    body: JSON.stringify({ logo_data: dataUrl }),
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Logo opslaan mislukt');
+                }
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                applyBtn.disabled = false;
+                applyBtn.textContent = 'Toepassen';
+            }
+        }
+
         closeLogoModal();
     });
 }

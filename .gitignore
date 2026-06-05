@@ -7,6 +7,8 @@ venv/
 *.db
 recordings/*.mp3
 recordings/logs/
+recordings/audiologger.db
+recordings/logos/*.jpg
 static/trimmed/
 .DS_Store
 *.log

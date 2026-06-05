@@ -7,6 +7,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session
 
+from pydantic import BaseModel
+
 from app.admin_auth import is_authenticated, login, logout
 from app.database import BASE_DIR, get_session
 from app.scheduler import (
@@ -27,6 +29,10 @@ from app.stations import (
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+class LogoUploadBody(BaseModel):
+    logo_data: str
 
 DUTCH_DAYS = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
 DUTCH_MONTHS = [
@@ -240,6 +246,10 @@ async def admin_upload_logo(
     if not get_station_model(session, station_id):
         raise HTTPException(status_code=404, detail="Zender niet gevonden")
 
+    if not logo_data and request.headers.get("content-type", "").startswith("application/json"):
+        body = LogoUploadBody.model_validate(await request.json())
+        logo_data = body.logo_data
+
     try:
         if logo_data:
             image_bytes = _decode_data_url(logo_data)
@@ -251,7 +261,10 @@ async def admin_upload_logo(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return RedirectResponse(url=admin_url(station_id), status_code=303)
+    if request.headers.get("X-Requested-With") == "fetch":
+        return JSONResponse({"ok": True, "logo_url": f"/logos/{station_id}.jpg"})
+
+    return RedirectResponse(url=admin_url(station_id, notice="logo"), status_code=303)
 
 
 def _decode_data_url(data_url: str) -> bytes:

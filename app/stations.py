@@ -28,6 +28,26 @@ COUNTRIES = [
 COUNTRY_MAP = {c["code"]: c for c in COUNTRIES}
 
 
+def resolve_logo_file(logo_path: str | None) -> Path | None:
+    if not logo_path:
+        return None
+
+    path = Path(logo_path)
+    candidates = [
+        path,
+        LOGOS_DIR / path.name,
+        LOGOS_DIR / logo_path,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def logo_filename(station_id: str) -> str:
+    return f"{station_id}.jpg"
+
+
 def get_country_info(country_code: str) -> dict:
     code = country_code.upper()
     return COUNTRY_MAP.get(code, COUNTRY_MAP["NL"])
@@ -56,10 +76,9 @@ def format_schedule_label(station: dict) -> str:
 
 def station_to_dict(station: Station) -> dict:
     logo_url = None
-    if station.logo_path:
-        logo_path = Path(station.logo_path)
-        if logo_path.exists():
-            logo_url = f"/logos/{logo_path.name}"
+    logo_file = resolve_logo_file(station.logo_path)
+    if logo_file:
+        logo_url = f"/logos/{logo_file.name}"
 
     country = station.country.upper()
     info = get_country_info(country)
@@ -123,6 +142,7 @@ def migrate_station_schema() -> None:
 
 
 def seed_stations_from_yaml() -> None:
+    """Alleen handmatig aanroepen (dev). Wordt niet meer automatisch bij opstart gebruikt."""
     if not STATIONS_CONFIG.exists():
         return
 
@@ -149,7 +169,30 @@ def seed_stations_from_yaml() -> None:
             session.add(station)
 
         session.commit()
-        logger.info("Seeded stations from stations.yaml")
+        logger.info("Seeded stations from stations.yaml (manual/dev only)")
+
+
+def reconcile_logos() -> None:
+    """Koppel logo-bestanden op schijf aan zenders in de database."""
+    if not LOGOS_DIR.exists():
+        return
+
+    with Session(engine) as session:
+        changed = False
+        for station in session.exec(select(Station)).all():
+            expected = logo_filename(station.id)
+            logo_file = LOGOS_DIR / expected
+            if logo_file.exists() and station.logo_path != expected:
+                station.logo_path = expected
+                changed = True
+            elif station.logo_path:
+                resolved = resolve_logo_file(station.logo_path)
+                if resolved and station.logo_path != expected:
+                    station.logo_path = expected
+                    changed = True
+        if changed:
+            session.commit()
+            logger.info("Reconciled station logos from disk")
 
 
 def load_stations(active_only: bool = False) -> list[dict]:
@@ -322,8 +365,8 @@ def delete_station(session: Session, station_id: str) -> None:
         raise ValueError("Zender niet gevonden")
 
     if station.logo_path:
-        logo = Path(station.logo_path)
-        if logo.exists():
+        logo = resolve_logo_file(station.logo_path)
+        if logo and logo.exists():
             logo.unlink(missing_ok=True)
 
     session.delete(station)
@@ -335,7 +378,8 @@ def save_station_logo(station_id: str, image_bytes: bytes) -> str:
         raise ValueError("Logo is te groot (max 5 MB)")
 
     LOGOS_DIR.mkdir(parents=True, exist_ok=True)
-    logo_path = LOGOS_DIR / f"{station_id}.jpg"
+    filename = logo_filename(station_id)
+    logo_path = LOGOS_DIR / filename
     logo_path.write_bytes(image_bytes)
 
     with Session(engine) as session:
@@ -343,13 +387,8 @@ def save_station_logo(station_id: str, image_bytes: bytes) -> str:
         if not station:
             raise ValueError("Zender niet gevonden")
 
-        if station.logo_path:
-            old_logo = Path(station.logo_path)
-            if old_logo.exists() and old_logo != logo_path:
-                old_logo.unlink(missing_ok=True)
-
-        station.logo_path = str(logo_path)
+        station.logo_path = filename
         session.add(station)
         session.commit()
 
-    return str(logo_path)
+    return filename
