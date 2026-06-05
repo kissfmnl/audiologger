@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}{{ station.name }} — AudioLogger{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <a href="/" class="text-sm text-muted hover:text-accent transition inline-flex items-center gap-1 mb-4">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+        Terug naar dashboard
+    </a>
+
+    <div class="flex items-center gap-4 mb-2">
+        <span class="text-5xl">{{ station.flag }}</span>
+        <div>
+            <h1 class="text-3xl font-bold">{{ station.name }}</h1>
+            <p class="text-muted">{{ station.country }} &middot; {{ stats.total_recordings }} opnames &middot; {{ stats.total_storage_mb }} MB</p>
+        </div>
+    </div>
+</div>
+
+<form method="get" class="mb-6 flex flex-wrap gap-3 items-end">
+    <div>
+        <label for="date" class="block text-sm text-muted mb-1">Zoek op datum</label>
+        <input type="date" id="date" name="date" value="{{ date_filter }}"
+               class="bg-card border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-accent">
+    </div>
+    <button type="submit"
+            class="px-4 py-2 rounded-lg bg-accent text-dark font-medium hover:bg-accent/90 transition">
+        Zoeken
+    </button>
+    {% if date_filter %}
+    <a href="/station/{{ station.id }}"
+       class="px-4 py-2 rounded-lg bg-card border border-white/10 text-muted hover:text-white transition">
+        Wis filter
+    </a>
+    {% endif %}
+</form>
+
+<div class="bg-card rounded-xl border border-white/5 overflow-hidden">
+    {% if recordings %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b border-white/10 text-muted text-left">
+                    <th class="px-6 py-4 font-medium">Datum</th>
+                    <th class="px-6 py-4 font-medium">Tijd</th>
+                    <th class="px-6 py-4 font-medium">Duur</th>
+                    <th class="px-6 py-4 font-medium">Grootte</th>
+                    <th class="px-6 py-4 font-medium">Status</th>
+                    <th class="px-6 py-4 font-medium text-right">Acties</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for rec in recordings %}
+                <tr class="border-b border-white/5 hover:bg-white/5 transition">
+                    <td class="px-6 py-4">{{ rec.start_time.strftime('%d-%m-%Y') }}</td>
+                    <td class="px-6 py-4">{{ rec.start_time.strftime('%H:%M') }} – {{ rec.end_time.strftime('%H:%M') }}</td>
+                    <td class="px-6 py-4">{{ (rec.duration_seconds // 3600) }}u {{ ((rec.duration_seconds % 3600) // 60) }}m</td>
+                    <td class="px-6 py-4">{{ rec.file_size_mb }} MB</td>
+                    <td class="px-6 py-4">
+                        {% if rec.status == 'completed' %}
+                        <span class="px-2 py-1 text-xs rounded-full bg-accent/20 text-accent">Voltooid</span>
+                        {% else %}
+                        <span class="px-2 py-1 text-xs rounded-full bg-red-500/20 text-red-400">Mislukt</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="flex justify-end gap-2">
+                            {% if rec.status == 'completed' %}
+                            <a href="/player/{{ rec.id }}"
+                               class="px-3 py-1.5 rounded-lg bg-accent/10 text-accent hover:bg-accent hover:text-dark transition text-xs font-medium">
+                                Afspelen
+                            </a>
+                            <a href="/recordings/{{ rec.file_path.split('/')[-1] }}"
+                               download
+                               class="px-3 py-1.5 rounded-lg bg-white/5 text-muted hover:text-white transition text-xs font-medium">
+                                Download
+                            </a>
+                            <a href="/player/{{ rec.id }}"
+                               class="px-3 py-1.5 rounded-lg bg-white/5 text-muted hover:text-accent transition text-xs font-medium">
+                                Knippen
+                            </a>
+                            {% else %}
+                            <span class="text-xs text-muted">Niet beschikbaar</span>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="text-center py-16 text-muted">
+        <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+        </svg>
+        <p class="text-lg mb-1">Nog geen opnames</p>
+        <p class="text-sm">Opnames verschijnen hier zodra de scheduler ze heeft gemaakt.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

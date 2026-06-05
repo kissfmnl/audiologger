@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+apscheduler
+sqlmodel
+pyyaml
+jinja2
+python-multipart
+aiofiles

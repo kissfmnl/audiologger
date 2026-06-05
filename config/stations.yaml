@@ -1,0 +1,40 @@
+stations:
+  - id: "radio1_nl"
+    name: "Radio 1"
+    country: "NL"
+    flag: "🇳🇱"
+    url: "https://icecast.omroep.nl/radio1-bb-mp3"
+    schedule: "0 * * * *"
+    active: true
+
+  - id: "radio2_nl"
+    name: "Radio 2"
+    country: "NL"
+    flag: "🇳🇱"
+    url: "https://icecast.omroep.nl/radio2-bb-mp3"
+    schedule: "0 8 * * *"
+    active: true
+
+  - id: "radio1_be"
+    name: "Radio 1 (VRT)"
+    country: "BE"
+    flag: "🇧🇪"
+    url: "https://icecast.vrtcdn.be/radio1-high.mp3"
+    schedule: "0 9 * * *"
+    active: true
+
+  - id: "dlf"
+    name: "Deutschlandfunk"
+    country: "DE"
+    flag: "🇩🇪"
+    url: "https://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3"
+    schedule: "0 10 * * *"
+    active: true
+
+  - id: "npr"
+    name: "NPR News"
+    country: "US"
+    flag: "🇺🇸"
+    url: "https://npr-ice.streamguys1.com/live.mp3"
+    schedule: "0 14 * * *"
+    active: true
