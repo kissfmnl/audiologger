@@ -49,25 +49,37 @@ def build_hour_slots(
             progress_label = f"{max(1, elapsed // 60)} min"
 
         playable = False
-        play_url = ""
+        audio_url = ""
         download_url = ""
+        peaks_url = ""
+        recording_id = None
+
         if status == "completed" and recording:
             playable = True
-            play_url = f"/player/{recording.id}"
-            download_url = f"/recordings/{recording.file_path.split('/')[-1]}"
+            filename = recording.file_path.split("/")[-1]
+            audio_url = f"/recordings/{filename}"
+            download_url = audio_url
+            peaks_url = f"/api/peaks/{recording.id}"
+            recording_id = recording.id
         elif status == "recording":
             partial = get_partial_path_for_hour(station, hour_start)
             playable = partial is not None and partial.exists() and partial.stat().st_size > 0
             if playable:
                 if recording:
-                    play_url = f"/recordings/live/{recording.id}"
-                    download_url = play_url
+                    audio_url = f"/recordings/live/{recording.id}"
+                    download_url = audio_url
+                    peaks_url = f"/api/peaks/{recording.id}"
+                    recording_id = recording.id
                 else:
-                    play_url = (
+                    audio_url = (
                         f"/recordings/live-hour/{station['id']}"
                         f"?date={selected_date}&hour={hour}"
                     )
-                    download_url = play_url
+                    download_url = audio_url
+                    peaks_url = (
+                        f"/api/peaks/hour/{station['id']}"
+                        f"?date={selected_date}&hour={hour}"
+                    )
 
         slots.append(
             {
@@ -77,8 +89,10 @@ def build_hour_slots(
                 "status": status,
                 "progress_label": progress_label,
                 "playable": playable,
-                "play_url": play_url,
+                "audio_url": audio_url,
                 "download_url": download_url,
+                "peaks_url": peaks_url,
+                "recording_id": recording_id,
             }
         )
 

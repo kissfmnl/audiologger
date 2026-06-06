@@ -2,6 +2,10 @@
 
 {% block title %}{{ station.name }} — AudioLogger{% endblock %}
 
+{% block head %}
+<script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <div class="flex flex-col lg:flex-row gap-6">
     {% include "partials/station_sidebar.html" %}
@@ -56,12 +60,14 @@
                     </div>
                     <div class="flex gap-2 shrink-0">
                         {% if slot.playable %}
-                        <a href="{{ slot.play_url }}"
-                           class="px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition text-xs font-medium">
+                        <button type="button"
+                                class="listen-btn px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition text-xs font-medium"
+                                data-peaks-url="{{ slot.peaks_url }}"
+                                data-title="{{ station.name }} · {{ slot.label }}">
                             Luister
-                        </a>
+                        </button>
                         <a href="{{ slot.download_url }}"
-                           {% if slot.status == 'recording' %}download{% else %}download{% endif %}
+                           download
                            class="px-3 py-1.5 rounded-lg bg-gray-100 text-body hover:bg-gray-200 transition text-xs font-medium">
                             Download
                         </a>
@@ -79,4 +85,60 @@
         </div>
     </div>
 </div>
+
+<div id="player-modal" class="fixed inset-0 z-[100] hidden" role="dialog" aria-modal="true">
+    <div id="player-modal-backdrop" class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+        <div class="relative w-full max-w-4xl bg-surface rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+            <div class="flex items-start justify-between gap-4 px-6 py-5 border-b border-gray-100">
+                <div class="min-w-0">
+                    <h2 id="player-modal-title" class="text-lg font-semibold text-heading truncate">Opname</h2>
+                    <p id="player-modal-subtitle" class="text-sm text-muted">Laden…</p>
+                </div>
+                <button id="player-modal-close" type="button"
+                        class="shrink-0 w-9 h-9 rounded-xl bg-gray-100 text-body hover:bg-gray-200 transition flex items-center justify-center"
+                        aria-label="Sluiten">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="px-6 py-5">
+                <div class="relative rounded-xl overflow-hidden bg-gray-50 border border-gray-100">
+                    <div id="player-modal-waveform" class="min-h-[128px]"></div>
+                    <div id="player-modal-loading"
+                         class="absolute inset-0 flex items-center justify-center bg-gray-50/90 text-sm text-muted">
+                        Wavevorm laden…
+                    </div>
+                </div>
+
+                <div id="player-modal-controls" class="mt-4 flex flex-wrap items-center gap-4 opacity-40 pointer-events-none">
+                    <button id="player-modal-play" type="button"
+                            class="w-12 h-12 rounded-full bg-purple-600 text-white flex items-center justify-center hover:bg-purple-700 transition shadow-sm">
+                        <svg id="player-modal-play-icon" class="w-5 h-5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        <svg id="player-modal-pause-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                        </svg>
+                    </button>
+                    <div class="text-sm font-mono text-heading">
+                        <span id="player-modal-current">0:00</span>
+                        <span class="text-muted"> / </span>
+                        <span id="player-modal-total">0:00</span>
+                    </div>
+                    <a id="player-modal-trim" href="#"
+                       class="hidden ml-auto text-sm font-medium text-purple-600 hover:text-purple-700 transition">
+                        Knippen →
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/player-modal.js"></script>
 {% endblock %}

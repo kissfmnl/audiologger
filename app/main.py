@@ -24,6 +24,7 @@ from app.database import (
 from app.archive_view import build_hour_slots
 from app.convert_recordings import convert_wav_recordings
 from app.editor import trim_recording
+from app.peaks import get_peaks_for_file
 from app.recorder import get_partial_path_for_hour, get_partial_recording_path
 from app.scheduler import setup_scheduler, shutdown_scheduler
 from app.stations import load_stations, get_station_by_id
@@ -247,6 +248,67 @@ def player_page(
             "is_live": recording.status == "recording",
         },
     )
+
+
+def _recording_audio_path(recording) -> Path | None:
+    if recording.status == "completed":
+        path = Path(recording.file_path)
+        return path if path.exists() else None
+    return get_partial_recording_path(recording)
+
+
+def _recording_audio_url(recording) -> str:
+    if recording.status == "completed":
+        return f"/recordings/{Path(recording.file_path).name}"
+    return f"/recordings/live/{recording.id}"
+
+
+@app.get("/api/peaks/{recording_id}")
+def api_peaks(recording_id: int, session: Session = Depends(get_session)):
+    recording = get_recording_by_id(session, recording_id)
+    if not recording or recording.status not in ("completed", "recording"):
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    audio_path = _recording_audio_path(recording)
+    if not audio_path:
+        raise HTTPException(status_code=404, detail="Audio file not found")
+
+    peaks, duration = get_peaks_for_file(audio_path)
+    return {
+        "peaks": peaks,
+        "duration": duration,
+        "audio_url": _recording_audio_url(recording),
+        "is_live": recording.status == "recording",
+        "title": f"{recording.station_name} · {recording.start_time.strftime('%d-%m-%Y %H:%M')}",
+        "recording_id": recording.id,
+    }
+
+
+@app.get("/api/peaks/hour/{station_id}")
+def api_peaks_hour(
+    station_id: str,
+    date: str = Query(...),
+    hour: int = Query(..., ge=0, le=23),
+    session: Session = Depends(get_session),
+):
+    station = get_station_by_id(station_id)
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+
+    hour_start = datetime.fromisoformat(f"{date}T{hour:02d}:00:00")
+    audio_path = get_partial_path_for_hour(station, hour_start)
+    if not audio_path:
+        raise HTTPException(status_code=404, detail="Audio file not found")
+
+    peaks, duration = get_peaks_for_file(audio_path)
+    return {
+        "peaks": peaks,
+        "duration": duration,
+        "audio_url": f"/recordings/live-hour/{station_id}?date={date}&hour={hour}",
+        "is_live": True,
+        "title": f"{station['name']} · {hour_start.strftime('%d-%m-%Y %H:%M')}",
+        "recording_id": None,
+    }
 
 
 @app.get("/api/recordings")
