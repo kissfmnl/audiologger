@@ -17,11 +17,7 @@
     </a>
 
     <div class="flex items-center gap-3 mb-2">
-        {% if station and station.logo_url %}
-        <img src="{{ station.logo_url }}" alt="{{ recording.station_name }}"
-             class="station-logo w-14 h-14 rounded-2xl object-cover border border-gray-200 bg-gray-100 shadow-sm"
-             draggable="false" oncontextmenu="return false">
-        {% elif station %}
+        {% if station %}
         <span class="text-3xl">{{ station.flag }}</span>
         {% endif %}
         <div>

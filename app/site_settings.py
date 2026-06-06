@@ -2,7 +2,7 @@ import json
 import logging
 from pathlib import Path
 
-from app.database import LOGOS_DIR, RECORDINGS_DIR
+from app.database import RECORDINGS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +10,6 @@ SETTINGS_PATH = RECORDINGS_DIR / "site.settings.json"
 REQUESTS_PATH = RECORDINGS_DIR / "stream_requests.json"
 
 DEFAULT_SETTINGS = {
-    "site_logo_path": None,
     "footer_text": "Professionele radio-opname archieven",
     "footer_link_url": "/contact",
     "footer_link_label": "Stream aanvragen",
@@ -27,11 +26,8 @@ def load_site_settings() -> dict:
         except (OSError, ValueError) as exc:
             logger.warning("Could not read site settings: %s", exc)
 
-    logo_path = settings.get("site_logo_path")
-    if logo_path:
-        settings["logo_url"] = f"/logos/{Path(logo_path).name}"
-    else:
-        settings["logo_url"] = None
+    for key in DEFAULT_SETTINGS:
+        settings.setdefault(key, DEFAULT_SETTINGS[key])
     return settings
 
 
@@ -43,14 +39,6 @@ def save_site_settings(data: dict) -> dict:
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_PATH.write_text(json.dumps(current, indent=2), encoding="utf-8")
     return load_site_settings()
-
-
-def save_site_logo(filename: str, content: bytes) -> str:
-    LOGOS_DIR.mkdir(parents=True, exist_ok=True)
-    path = LOGOS_DIR / filename
-    path.write_bytes(content)
-    save_site_settings({"site_logo_path": f"logos/{filename}"})
-    return filename
 
 
 def load_stream_requests() -> list[dict]:

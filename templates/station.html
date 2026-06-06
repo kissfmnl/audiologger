@@ -8,13 +8,7 @@
 
     <div class="flex-1 min-w-0">
         <div class="flex items-center gap-3 mb-6">
-            {% if station.logo_url %}
-            <img src="{{ station.logo_url }}" alt="{{ station.name }}"
-                 class="station-logo w-12 h-12 rounded-xl object-cover border border-gray-200 bg-gray-100 shrink-0"
-                 draggable="false" oncontextmenu="return false">
-            {% else %}
             <span class="text-3xl shrink-0">{{ station.flag }}</span>
-            {% endif %}
             <div class="min-w-0">
                 <h1 class="text-2xl font-bold text-heading truncate">{{ station.name }}</h1>
                 <p class="text-sm text-muted">{{ station.country_name | default(station.country) }}</p>

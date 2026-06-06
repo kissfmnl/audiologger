@@ -71,11 +71,7 @@
         {% set station = row.station %}
         <div class="px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3 {% if row.state in ('error', 'warning') %}bg-red-50/40{% elif row.state == 'pending' %}bg-amber-50/30{% endif %}">
             <div class="flex items-center gap-3 min-w-0 flex-1">
-                {% if station.logo_url %}
-                <img src="{{ station.logo_url }}?v={{ station.id }}" alt="" class="w-10 h-10 rounded-lg object-cover border border-gray-200 bg-gray-100 shrink-0">
-                {% else %}
                 <span class="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center text-lg shrink-0">{{ station.flag }}</span>
-                {% endif %}
                 <div class="min-w-0">
                     <p class="font-semibold text-heading text-sm truncate">{{ station.name }}</p>
                     <p class="text-[11px] text-violet-400 font-mono truncate">{{ station.id }}</p>
