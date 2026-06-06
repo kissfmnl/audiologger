@@ -1,18 +1,25 @@
 import json
 import logging
+import math
+import shutil
 import struct
 import subprocess
+import tempfile
 import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_BARS = 1000
-BYTES_PER_SECOND_128K = 16000  # 128 kbps MP3
+BYTES_PER_SECOND_128K = 16000
 
 
 def peaks_cache_path(audio_path: Path) -> Path:
     return audio_path.with_name(f"{audio_path.name}.peaks.json")
+
+
+def placeholder_peaks(bars: int = DEFAULT_BARS) -> list[float]:
+    return [round(0.07 + 0.05 * math.sin(index * 0.06), 4) for index in range(bars)]
 
 
 def estimate_duration(path: Path) -> float:
@@ -52,7 +59,76 @@ def get_audio_duration(path: Path) -> float:
     return estimate_duration(path)
 
 
-def _decode_peaks(path: Path, bars: int) -> tuple[list[float], float]:
+def _parse_audiowaveform_json(payload: dict) -> list[float]:
+    raw = payload.get("data", [])
+    channels = int(payload.get("channels", 1) or 1)
+    bits = int(payload.get("bits", 8) or 8)
+    max_val = 128 if bits == 8 else 32768
+    stride = 2 * channels
+    peaks: list[float] = []
+
+    for index in range(0, len(raw) - 1, stride):
+        minimum = abs(int(raw[index]))
+        maximum = abs(int(raw[index + 1])) if index + 1 < len(raw) else 0
+        peaks.append(max(minimum, maximum) / max_val)
+
+    max_peak = max(peaks) if peaks else 0.0
+    if max_peak > 0:
+        peaks = [round(peak / max_peak, 4) for peak in peaks]
+    return peaks
+
+
+def _decode_peaks_audiowaveform(path: Path, bars: int) -> tuple[list[float], float]:
+    if not shutil.which("audiowaveform"):
+        return [], 0.0
+
+    duration = max(get_audio_duration(path), 1.0)
+    pixels_per_second = max(0.15, bars / duration)
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
+        output_path = Path(handle.name)
+
+    try:
+        result = subprocess.run(
+            [
+                "audiowaveform",
+                "-i",
+                str(path),
+                "-o",
+                str(output_path),
+                "--output-format",
+                "json",
+                "-b",
+                "8",
+                "--pixels-per-second",
+                f"{pixels_per_second:.4f}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "audiowaveform failed for %s: %s",
+                path.name,
+                (result.stderr or result.stdout)[-300:],
+            )
+            return [], duration
+
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        peaks = _parse_audiowaveform_json(payload)
+        if not peaks:
+            return [], duration
+        return peaks[:bars], duration
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        logger.warning("audiowaveform failed for %s: %s", path.name, exc)
+        return [], duration
+    finally:
+        output_path.unlink(missing_ok=True)
+
+
+def _decode_peaks_ffmpeg(path: Path, bars: int) -> tuple[list[float], float]:
     duration = max(get_audio_duration(path), 1.0)
     sample_rate = 80
     samples_per_bar = max(1, int(duration * sample_rate / bars))
@@ -129,6 +205,13 @@ def _decode_peaks(path: Path, bars: int) -> tuple[list[float], float]:
     return peaks[:bars], duration
 
 
+def _decode_peaks(path: Path, bars: int) -> tuple[list[float], float]:
+    peaks, duration = _decode_peaks_audiowaveform(path, bars)
+    if peaks:
+        return peaks, duration
+    return _decode_peaks_ffmpeg(path, bars)
+
+
 def load_cached_peaks(path: Path) -> tuple[list[float], float] | None:
     cache_path = peaks_cache_path(path)
     if not cache_path.exists() or not path.exists():
@@ -169,37 +252,34 @@ def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> None:
         logger.warning("Could not write peaks cache %s: %s", cache_path, exc)
 
 
-def generate_peaks(path: Path, bars: int = DEFAULT_BARS) -> tuple[list[float], float]:
-    if not path.exists() or path.stat().st_size == 0:
-        return [], 0.0
-
-    cached = load_cached_peaks(path)
-    if cached:
-        return cached
-
-    peaks, duration = _decode_peaks(path, bars)
-    if peaks:
-        save_cached_peaks(path, peaks, duration)
-    return peaks, duration
-
-
 def read_peaks_fast(path: Path) -> dict:
-    """Read cached peaks only — never blocks on ffmpeg."""
+    """Return peaks immediately; never block the request on ffmpeg."""
+    duration = estimate_duration(path)
     if not path.exists() or path.stat().st_size == 0:
-        return {"peaks": [], "duration": 0.0, "ready": False}
+        return {
+            "peaks": placeholder_peaks(),
+            "duration": duration,
+            "ready": True,
+            "precise": False,
+        }
 
     cached = load_cached_peaks(path)
     if cached:
-        peaks, duration = cached
-        return {"peaks": peaks, "duration": duration, "ready": True}
-
-    size = path.stat().st_size
-    if size < 8_000_000:
-        peaks, duration = generate_peaks(path)
-        return {"peaks": peaks, "duration": duration, "ready": bool(peaks)}
+        peaks, cached_duration = cached
+        return {
+            "peaks": peaks,
+            "duration": cached_duration,
+            "ready": True,
+            "precise": True,
+        }
 
     ensure_peaks_async(path)
-    return {"peaks": [], "duration": estimate_duration(path), "ready": False}
+    return {
+        "peaks": placeholder_peaks(),
+        "duration": duration,
+        "ready": True,
+        "precise": False,
+    }
 
 
 def ensure_peaks(path: Path) -> None:
@@ -207,7 +287,7 @@ def ensure_peaks(path: Path) -> None:
         return
     if load_cached_peaks(path):
         return
-    peaks, duration = _decode_peaks(path)
+    peaks, duration = _decode_peaks(path, DEFAULT_BARS)
     if peaks:
         save_cached_peaks(path, peaks, duration)
 
@@ -218,7 +298,7 @@ def ensure_peaks_async(path: Path) -> None:
 
 def warm_missing_peaks(recordings_dir: Path) -> None:
     for audio_path in sorted(recordings_dir.glob("*.mp3")):
-        if peaks_cache_path(audio_path).exists():
+        if load_cached_peaks(audio_path):
             continue
         try:
             ensure_peaks(audio_path)

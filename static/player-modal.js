@@ -1,6 +1,5 @@
 (function () {
     const modal = document.getElementById("player-modal");
-    const backdrop = document.getElementById("player-modal-backdrop");
     const panel = document.getElementById("player-modal-panel");
     const closeBtn = document.getElementById("player-modal-close");
     const titleEl = document.getElementById("player-modal-title");
@@ -14,9 +13,8 @@
     const currentTimeEl = document.getElementById("player-modal-current");
     const totalTimeEl = document.getElementById("player-modal-total");
     const trimLink = document.getElementById("player-modal-trim");
-    const zoomInBtn = document.getElementById("player-modal-zoom-in");
-    const zoomOutBtn = document.getElementById("player-modal-zoom-out");
-    const zoomResetBtn = document.getElementById("player-modal-zoom-reset");
+    const zoomSlider = document.getElementById("player-modal-zoom");
+    const zoomLabel = document.getElementById("player-modal-zoom-label");
     const panWrap = document.getElementById("player-modal-pan-wrap");
     const panSlider = document.getElementById("player-modal-pan");
 
@@ -36,9 +34,7 @@
         try {
             const bootstrap = JSON.parse(bootstrapEl.textContent || "{}");
             Object.entries(bootstrap).forEach(([url, data]) => {
-                if (data.ready) {
-                    peaksCache.set(url, data);
-                }
+                peaksCache.set(url, data);
             });
         } catch {
             // ignore invalid bootstrap JSON
@@ -49,12 +45,13 @@
     let activeButton = null;
     let peaks = [];
     let duration = 0;
-    let pollTimer = null;
+    let precisePollTimer = null;
     let rafId = null;
     let peaksUrl = "";
     let zoom = MIN_ZOOM;
     let viewStart = 0;
     let lastFocusInView = 0.5;
+    let syncingZoomSlider = false;
 
     function formatTime(seconds) {
         const total = Math.max(0, Math.floor(seconds || 0));
@@ -76,23 +73,28 @@
         return Math.min(Math.max(0, start), Math.max(0, 1 - span));
     }
 
-    function updateZoomLabel() {
-        if (zoomResetBtn) {
-            zoomResetBtn.textContent = zoom === MIN_ZOOM ? "1×" : `${zoom}×`;
+    function updateZoomUi() {
+        if (zoomLabel) {
+            zoomLabel.textContent = `${zoom}×`;
         }
+        if (zoomSlider) {
+            syncingZoomSlider = true;
+            zoomSlider.value = String(zoom);
+            syncingZoomSlider = false;
+        }
+        updatePanSlider();
     }
 
     function updatePanSlider() {
         if (!panWrap || !panSlider) {
             return;
         }
-        const span = getViewSpan();
         if (zoom <= MIN_ZOOM) {
             panWrap.classList.add("hidden");
             return;
         }
         panWrap.classList.remove("hidden");
-        const maxStart = Math.max(0, 1 - span);
+        const maxStart = Math.max(0, 1 - getViewSpan());
         if (maxStart <= 0) {
             panSlider.value = "0";
             return;
@@ -106,27 +108,26 @@
         drawWaveform();
     }
 
-    function resetZoom() {
-        zoom = MIN_ZOOM;
-        viewStart = 0;
-        updateZoomLabel();
-        updatePanSlider();
-        drawWaveform();
-    }
-
-    function zoomAt(factor, focusInView) {
+    function setZoomLevel(newZoom, focusInView = lastFocusInView) {
         const oldSpan = getViewSpan();
         const focusPoint = viewStart + focusInView * oldSpan;
-        zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
+        zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(newZoom)));
         if (zoom === MIN_ZOOM) {
             viewStart = 0;
         } else {
             const newSpan = getViewSpan();
             viewStart = clampViewStart(focusPoint - focusInView * newSpan);
         }
-        updateZoomLabel();
-        updatePanSlider();
+        updateZoomUi();
         drawWaveform();
+    }
+
+    function resetZoom() {
+        setZoomLevel(MIN_ZOOM, 0.5);
+    }
+
+    function zoomAt(factor, focusInView) {
+        setZoomLevel(zoom * factor, focusInView);
     }
 
     function zoomIn(focusInView) {
@@ -273,15 +274,15 @@
         }
     }
 
-    function clearPoll() {
-        if (pollTimer) {
-            clearInterval(pollTimer);
-            pollTimer = null;
+    function clearPrecisePoll() {
+        if (precisePollTimer) {
+            clearInterval(precisePollTimer);
+            precisePollTimer = null;
         }
     }
 
     function destroyPlayer() {
-        clearPoll();
+        clearPrecisePoll();
         stopAnimation();
         if (audio) {
             audio.pause();
@@ -321,7 +322,7 @@
                 return response.json();
             })
             .then((data) => {
-                if (data.ready && !data.is_live) {
+                if (data.precise && !data.is_live) {
                     peaksCache.set(url, data);
                 }
                 return data;
@@ -345,25 +346,23 @@
         peaks = data.peaks || [];
         duration = data.duration || duration || 3600;
         totalTimeEl.textContent = formatTime(duration);
-        resetZoom();
         resizeCanvas();
         revealControls();
     }
 
-    function startPeaksPoll(url) {
-        clearPoll();
-        pollTimer = setInterval(async () => {
+    function startPreciseUpgrade(url) {
+        clearPrecisePoll();
+        precisePollTimer = setInterval(async () => {
             try {
                 const data = await fetchPeaks(url, true);
-                if (data.ready && data.peaks && data.peaks.length > 0) {
+                if (data.precise && data.peaks && data.peaks.length > 0) {
                     applyPeaksData(data);
-                    subtitleEl.textContent = data.is_live ? "Live opname" : "Volledig uur";
-                    clearPoll();
+                    clearPrecisePoll();
                 }
             } catch {
-                // keep polling
+                // keep trying quietly
             }
-        }, 400);
+        }, 2000);
     }
 
     function pointerToFocusRatio(event) {
@@ -382,6 +381,25 @@
         drawWaveform();
     }
 
+    function loadPlayerData(data, fallbackTitle) {
+        titleEl.textContent = data.title || fallbackTitle;
+        subtitleEl.textContent = data.is_live ? "Live opname" : "Volledig uur";
+
+        if (data.recording_id && !data.is_live) {
+            trimLink.href = `/player/${data.recording_id}`;
+            trimLink.classList.remove("hidden");
+        } else {
+            trimLink.classList.add("hidden");
+        }
+
+        applyPeaksData(data);
+        if (!data.precise && data.peaks_url) {
+            startPreciseUpgrade(data.peaks_url || peaksUrl);
+        } else if (!data.precise && peaksUrl) {
+            startPreciseUpgrade(peaksUrl);
+        }
+    }
+
     async function openPlayer(button) {
         const url = button.dataset.peaksUrl;
         const audioUrl = button.dataset.audioUrl;
@@ -397,8 +415,8 @@
         destroyPlayer();
         modal.classList.remove("hidden");
         document.body.classList.add("overflow-hidden");
-        loadingEl.classList.remove("hidden");
-        controlsEl.classList.add("opacity-40", "pointer-events-none");
+        loadingEl.classList.add("hidden");
+        controlsEl.classList.remove("opacity-40", "pointer-events-none");
         titleEl.textContent = fallbackTitle;
         subtitleEl.textContent = "Laden…";
         currentTimeEl.textContent = "0:00";
@@ -420,45 +438,27 @@
         });
 
         resizeCanvas();
-        revealControls();
         startAnimation();
 
+        const cached = peaksCache.get(url);
+        if (cached) {
+            loadPlayerData(cached, fallbackTitle);
+            if (activeButton) {
+                activeButton.disabled = false;
+            }
+            return;
+        }
+
         try {
-            const cached = peaksCache.get(url);
-            if (cached) {
-                titleEl.textContent = cached.title || fallbackTitle;
-                subtitleEl.textContent = cached.is_live ? "Live opname" : "Volledig uur";
-                if (cached.recording_id && !cached.is_live) {
-                    trimLink.href = `/player/${cached.recording_id}`;
-                    trimLink.classList.remove("hidden");
-                }
-                applyPeaksData(cached);
-                if (cached.ready) {
-                    if (activeButton) {
-                        activeButton.disabled = false;
-                    }
-                    return;
-                }
-            }
-
-            const data = await fetchPeaks(url, false);
-            titleEl.textContent = data.title || fallbackTitle;
-            subtitleEl.textContent = data.is_live ? "Live opname" : "Volledig uur";
-
-            if (data.recording_id && !data.is_live) {
-                trimLink.href = `/player/${data.recording_id}`;
-                trimLink.classList.remove("hidden");
-            }
-
-            if (data.ready && data.peaks && data.peaks.length > 0) {
-                applyPeaksData(data);
-            } else {
-                subtitleEl.textContent = "Wavevorm voorbereiden…";
-                startPeaksPoll(url);
-            }
+            const data = await fetchPeaks(url);
+            loadPlayerData(data, fallbackTitle);
         } catch (error) {
             subtitleEl.textContent = error.message || "Laden mislukt";
             revealControls();
+        } finally {
+            if (activeButton) {
+                activeButton.disabled = false;
+            }
         }
     }
 
@@ -486,20 +486,18 @@
         }
     });
 
-    if (zoomInBtn) {
-        zoomInBtn.addEventListener("click", () => zoomIn(lastFocusInView));
-    }
-    if (zoomOutBtn) {
-        zoomOutBtn.addEventListener("click", () => zoomOut(lastFocusInView));
-    }
-    if (zoomResetBtn) {
-        zoomResetBtn.addEventListener("click", resetZoom);
+    if (zoomSlider) {
+        zoomSlider.addEventListener("input", () => {
+            if (syncingZoomSlider) {
+                return;
+            }
+            setZoomLevel(Number(zoomSlider.value), lastFocusInView);
+        });
     }
 
     if (panSlider) {
         panSlider.addEventListener("input", () => {
-            const span = getViewSpan();
-            const maxStart = Math.max(0, 1 - span);
+            const maxStart = Math.max(0, 1 - getViewSpan());
             const ratio = Number(panSlider.value) / PAN_STEPS;
             setViewStart(maxStart * ratio);
         });
