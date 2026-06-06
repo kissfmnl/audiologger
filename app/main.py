@@ -1,8 +1,9 @@
 import logging
 import threading
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -15,11 +16,9 @@ from sqlmodel import Session
 from app.database import (
     BASE_DIR,
     RECORDINGS_DIR,
-    get_global_stats,
     get_recording_by_id,
     get_recordings,
     get_session,
-    get_station_stats,
     init_db,
 )
 from app.convert_recordings import convert_wav_recordings
@@ -36,6 +35,90 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+DUTCH_WEEKDAYS = (
+    "Maandag",
+    "Dinsdag",
+    "Woensdag",
+    "Donderdag",
+    "Vrijdag",
+    "Zaterdag",
+    "Zondag",
+)
+DUTCH_MONTHS = (
+    "Jan",
+    "Feb",
+    "Mrt",
+    "Apr",
+    "Mei",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Okt",
+    "Nov",
+    "Dec",
+)
+
+
+def filter_stations_by_country(stations: list[dict], country: str | None) -> list[dict]:
+    if country and country.upper() != "ALL":
+        return [s for s in stations if s["country"].upper() == country.upper()]
+    return stations
+
+
+def station_today(station: dict) -> date:
+    tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
+    return datetime.now(tz).date()
+
+
+def format_date_tab_label(day: date, today: date) -> str:
+    month = DUTCH_MONTHS[day.month - 1]
+    if day == today:
+        return f"Vandaag {day.day:02d} {month}"
+    return f"{DUTCH_WEEKDAYS[day.weekday()]} {day.day:02d} {month}"
+
+
+def build_date_tabs(station: dict, days: int = 7) -> list[dict]:
+    today = station_today(station)
+    tabs = []
+    for offset in range(days - 1, -1, -1):
+        day = today - timedelta(days=offset)
+        tabs.append(
+            {
+                "date": day.isoformat(),
+                "label": format_date_tab_label(day, today),
+            }
+        )
+    return tabs
+
+
+def build_station_page_context(
+    station: dict,
+    session: Session,
+    country: str | None,
+    date_filter: str | None,
+) -> dict:
+    all_stations = load_stations(active_only=False)
+    countries = sorted({s["country"] for s in all_stations})
+    selected_country = country or "ALL"
+    stations = filter_stations_by_country(all_stations, selected_country)
+
+    today = station_today(station)
+    selected_date = date_filter or today.isoformat()
+
+    recordings = get_recordings(session, station_id=station["id"], date_filter=selected_date)
+    recordings = sorted(recordings, key=lambda r: r.start_time)
+
+    return {
+        "station": station,
+        "stations": stations,
+        "countries": countries,
+        "selected_country": selected_country,
+        "selected_date": selected_date,
+        "date_tabs": build_date_tabs(station),
+        "recordings": recordings,
+    }
 
 
 class TrimRequest(BaseModel):
@@ -90,42 +173,13 @@ def recording_to_dict(recording) -> dict:
 def dashboard(
     request: Request,
     country: str | None = Query(default=None),
-    session: Session = Depends(get_session),
 ):
-    stations = load_stations(active_only=False)
+    stations = filter_stations_by_country(load_stations(active_only=False), country)
+    if not stations:
+        return templates.TemplateResponse(request, "dashboard.html", {})
 
-    if country and country.upper() != "ALL":
-        stations = [s for s in stations if s["country"].upper() == country.upper()]
-
-    station_cards = []
-    for station in stations:
-        stats = get_station_stats(session, station["id"])
-        last = stats["last_recording"]
-        station_cards.append(
-            {
-                **station,
-                "total_recordings": stats["total_recordings"],
-                "total_storage_mb": stats["total_storage_mb"],
-                "last_recording_date": last.start_time.strftime("%d-%m-%Y %H:%M")
-                if last
-                else "Geen opnames",
-            }
-        )
-
-    global_stats = get_global_stats(session)
-    all_stations = load_stations(active_only=False)
-    countries = sorted({s["country"] for s in all_stations})
-
-    return templates.TemplateResponse(
-        request,
-        "dashboard.html",
-        {
-            "stations": station_cards,
-            "global_stats": global_stats,
-            "countries": countries,
-            "selected_country": country or "ALL",
-        },
-    )
+    query = f"?country={country}" if country and country.upper() != "ALL" else ""
+    return RedirectResponse(url=f"/station/{stations[0]['id']}{query}", status_code=302)
 
 
 @app.get("/station/{station_id}", response_class=HTMLResponse)
@@ -133,24 +187,26 @@ def station_page(
     request: Request,
     station_id: str,
     date: str | None = Query(default=None),
+    country: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
     station = get_station_by_id(station_id)
     if not station:
         raise HTTPException(status_code=404, detail="Station not found")
 
-    recordings = get_recordings(session, station_id=station_id, date_filter=date)
-    stats = get_station_stats(session, station_id)
+    selected_country = country or "ALL"
+    filtered = filter_stations_by_country(load_stations(active_only=False), selected_country)
+    if filtered and station_id not in {s["id"] for s in filtered}:
+        target = filtered[0]["id"]
+        query = f"date={date or station_today(station).isoformat()}"
+        if selected_country != "ALL":
+            query += f"&country={selected_country}"
+        return RedirectResponse(url=f"/station/{target}?{query}", status_code=302)
 
     return templates.TemplateResponse(
         request,
         "station.html",
-        {
-            "station": station,
-            "recordings": recordings,
-            "stats": stats,
-            "date_filter": date or "",
-        },
+        build_station_page_context(station, session, country, date),
     )
 
 
