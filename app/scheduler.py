@@ -9,7 +9,12 @@ from sqlmodel import Session, select
 
 from app.database import engine
 from app.models import Recording
-from app.recorder import get_partial_path_for_hour, has_completed_recording, record_station
+from app.recorder import (
+    finalize_all_stale_recordings,
+    get_partial_path_for_hour,
+    has_completed_recording,
+    record_station,
+)
 from app.retention import cleanup_expired_recordings
 from app.stations import get_station_by_id, load_stations, recording_start_time, should_record_station
 
@@ -176,6 +181,13 @@ def reload_scheduler() -> BackgroundScheduler:
         replace_existing=True,
     )
 
+    scheduler.add_job(
+        finalize_all_stale_recordings,
+        trigger=CronTrigger(minute="*/5"),
+        id="finalize_stale_recordings",
+        replace_existing=True,
+    )
+
     return scheduler
 
 
@@ -228,6 +240,9 @@ def retry_todays_failed_recordings() -> None:
 def setup_scheduler() -> BackgroundScheduler:
     scheduler_result = reload_scheduler()
     retry_todays_failed_recordings()
+    finalized = finalize_all_stale_recordings()
+    if finalized:
+        logger.info("Finalized %s stale recordings on startup", finalized)
     cleanup_expired_recordings()
     return scheduler_result
 

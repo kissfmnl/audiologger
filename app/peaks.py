@@ -328,10 +328,10 @@ def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> None:
         logger.warning("Could not write peaks cache %s: %s", cache_path, exc)
 
 
-def read_peaks_fast(path: Path) -> dict:
-    """Return peaks immediately; never block the request on ffmpeg."""
+def read_peaks_fast(path: Path, max_wait: float = 0.0) -> dict:
+    """Return cached peaks; optionally wait up to max_wait seconds for generation."""
     cached_response = _cached_response(path)
-    if cached_response:
+    if cached_response and cached_response.get("precise"):
         return cached_response
 
     duration = estimate_duration(path)
@@ -347,9 +347,31 @@ def read_peaks_fast(path: Path) -> dict:
         _store_response(path, response)
         return response
 
+    if max_wait > 0:
+        done = threading.Event()
+
+        def _generate() -> None:
+            try:
+                ensure_peaks(path)
+            finally:
+                done.set()
+
+        threading.Thread(target=_generate, daemon=True).start()
+        done.wait(timeout=max_wait)
+        cached = load_cached_peaks(path)
+        if cached:
+            peaks, cached_duration = cached
+            response = _wire_response(peaks, cached_duration, True)
+            _store_response(path, response)
+            return response
+
     ensure_peaks_async(path)
-    response = _wire_response(placeholder_peaks(), duration, False)
-    return response
+    return {
+        "peaks": [],
+        "duration": duration,
+        "ready": False,
+        "precise": False,
+    }
 
 
 def ensure_peaks(path: Path) -> None:

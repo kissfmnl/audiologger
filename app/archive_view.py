@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from app.database import get_recording_for_hour, get_recordings
 from app.peaks import estimate_duration, read_embed_peaks
-from app.recorder import get_partial_path_for_hour, is_hour_actively_recording
+from app.recorder import finalize_stale_recording, get_partial_path_for_hour, is_hour_actively_recording
 from app.stations import should_record_station
 
 
@@ -36,6 +36,8 @@ def build_hour_slots(
 
     recordings_by_hour: dict[int, object] = {}
     for recording in get_recordings(session, station_id=station["id"], date_filter=selected_date):
+        if recording.status == "recording":
+            recording = finalize_stale_recording(session, station, recording)
         recordings_by_hour[recording.start_time.hour] = recording
 
     slots = []
@@ -62,7 +64,7 @@ def build_hour_slots(
         progress_label = ""
         if status == "recording":
             elapsed = max(0, int((now - slot_moment).total_seconds()))
-            progress_label = f"{max(1, elapsed // 60)} min"
+            progress_label = f"{min(60, max(1, elapsed // 60))} min"
 
         playable = False
         audio_url = ""

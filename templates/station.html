@@ -109,8 +109,11 @@
                 <div class="relative rounded-xl overflow-hidden bg-gray-50 border border-gray-100">
                     <canvas id="player-modal-canvas" class="w-full h-32 block cursor-pointer touch-none"></canvas>
                     <div id="player-modal-loading"
-                         class="absolute inset-0 flex items-center justify-center bg-gray-50/90 text-sm text-muted">
-                        Wavevorm laden…
+                         class="absolute inset-0 flex items-center justify-center bg-gray-50/95">
+                        <div class="text-center">
+                            <p class="text-sm text-muted mb-2">Wavevorm laden</p>
+                            <p id="player-modal-countdown" class="text-4xl font-bold text-purple-600 tabular-nums leading-none">3</p>
+                        </div>
                     </div>
                 </div>
 
@@ -160,5 +163,5 @@
 
 {% block scripts %}
 <script id="peaks-bootstrap" type="application/json">{{ peaks_bootstrap | tojson }}</script>
-<script src="/static/player-modal.js?v=3"></script>
+<script src="/static/player-modal.js?v=4"></script>
 {% endblock %}

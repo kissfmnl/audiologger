@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from sqlmodel import Session, select
 
 from app.database import LOGS_DIR, RECORDINGS_DIR, engine
-from app.peaks import ensure_peaks
+from app.peaks import ensure_peaks_async
 from app.models import Recording
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,9 @@ def get_partial_recording_path(recording: Recording) -> Path | None:
         if part.stat().st_size > 0:
             return part
     return None
+
+
+MIN_VALID_MP3_BYTES = 100_000
 
 
 def has_completed_recording(station_id: str, start_time: datetime) -> bool:
@@ -396,7 +399,72 @@ def _record_station_locked(station: dict, start_time: datetime, tz: ZoneInfo) ->
                 f"Recording failed for {station['id']} at {start_time.isoformat()}: {last_error}"
             )
 
-        ensure_peaks(output_path)
+        ensure_peaks_async(output_path)
         return recording
     finally:
         shutil.rmtree(parts_dir, ignore_errors=True)
+
+
+def finalize_stale_recording(
+    session: Session,
+    station: dict,
+    recording: Recording,
+) -> Recording:
+    """Close out recordings left in 'recording' after crashes, deploys, or hung jobs."""
+    if recording.status != "recording":
+        return recording
+
+    tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
+    start_time = recording.start_time
+    hour_end = start_time.replace(tzinfo=tz) + timedelta(hours=1)
+    now = datetime.now(tz)
+
+    if now < hour_end + timedelta(seconds=90):
+        if is_hour_actively_recording(station, start_time):
+            return recording
+
+    if is_hour_actively_recording(station, start_time):
+        return recording
+
+    output_path = Path(recording.file_path)
+    parts_dir = output_path.parent / f".{output_path.stem}_parts"
+
+    if output_path.exists() and output_path.stat().st_size >= MIN_VALID_MP3_BYTES:
+        updated = save_recording_to_db(session, station, start_time, output_path, "completed")
+        ensure_peaks_async(output_path)
+        logger.info("Finalized stale recording as completed: %s %s", station["id"], start_time)
+        return updated
+
+    segments = []
+    if parts_dir.is_dir():
+        segments = [part for part in sorted(parts_dir.glob("part*.mp3")) if part.stat().st_size > 0]
+
+    if segments and concat_mp3_segments(segments, output_path):
+        updated = save_recording_to_db(session, station, start_time, output_path, "completed")
+        ensure_peaks_async(output_path)
+        shutil.rmtree(parts_dir, ignore_errors=True)
+        logger.info("Salvaged stale recording from parts: %s %s", station["id"], start_time)
+        return updated
+
+    updated = save_recording_to_db(session, station, start_time, output_path, "failed")
+    shutil.rmtree(parts_dir, ignore_errors=True)
+    logger.warning("Marked stale recording as failed: %s %s", station["id"], start_time)
+    return updated
+
+
+def finalize_all_stale_recordings() -> int:
+    from app.stations import get_station_by_id
+
+    finalized = 0
+    with Session(engine) as session:
+        stale = session.exec(select(Recording).where(Recording.status == "recording")).all()
+        for recording in stale:
+            station = get_station_by_id(recording.station_id)
+            if not station:
+                continue
+            before = recording.status
+            finalize_stale_recording(session, station, recording)
+            session.refresh(recording)
+            if recording.status != before:
+                finalized += 1
+    return finalized

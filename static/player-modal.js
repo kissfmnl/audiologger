@@ -28,7 +28,8 @@
     const MIN_ZOOM = 1;
     const MAX_ZOOM = 48;
     const PAN_STEPS = 1000;
-    const PLACEHOLDER_BARS = 512;
+    const WAVEFORM_WAIT_SEC = 3;
+    const countdownEl = document.getElementById("player-modal-countdown");
 
     const bootstrapEl = document.getElementById("peaks-bootstrap");
     if (bootstrapEl) {
@@ -47,7 +48,6 @@
     let activeButton = null;
     let peaks = [];
     let duration = 0;
-    let precisePollTimer = null;
     let rafId = null;
     let peaksUrl = "";
     let zoom = MIN_ZOOM;
@@ -79,25 +79,6 @@
                 title: button.dataset.title,
             });
         });
-    }
-
-    function generatePlaceholderPeaks(bars = PLACEHOLDER_BARS) {
-        const peaks = [];
-        for (let index = 0; index < bars; index += 1) {
-            peaks.push(Math.round((0.07 + 0.05 * Math.sin(index * 0.06)) * 10000) / 10000);
-        }
-        return peaks;
-    }
-
-    function buildInstantPeakData(duration, meta = {}) {
-        const hasPeaks = Array.isArray(meta.peaks) && meta.peaks.length > 0;
-        return {
-            ...meta,
-            peaks: hasPeaks ? meta.peaks : generatePlaceholderPeaks(),
-            duration: meta.duration || duration || 3600,
-            ready: true,
-            precise: Boolean(meta.precise && hasPeaks),
-        };
     }
 
     function formatTime(seconds) {
@@ -271,13 +252,13 @@
         const progress = timeToRatio(audio ? audio.currentTime : 0);
         const playheadX = ratioToCanvasX(progress);
 
-        drawFilledWave(samples, width, height, mid, "#D1D5DB", null);
+        drawFilledWave(samples, width, height, mid, "#86EFAC", null);
         if (playheadX > 0) {
-            drawFilledWave(samples, width, height, mid, "#7C3AED", playheadX);
+            drawFilledWave(samples, width, height, mid, "#1E3A8A", playheadX);
         }
 
         if (playheadX >= 0 && playheadX <= width) {
-            ctx.fillStyle = "#6D28D9";
+            ctx.fillStyle = "#312E81";
             ctx.fillRect(Math.max(0, playheadX - 1), 0, 2, height);
         }
     }
@@ -321,15 +302,7 @@
         }
     }
 
-    function clearPrecisePoll() {
-        if (precisePollTimer) {
-            clearInterval(precisePollTimer);
-            precisePollTimer = null;
-        }
-    }
-
     function destroyPlayer() {
-        clearPrecisePoll();
         stopAnimation();
         if (audio) {
             audio.pause();
@@ -353,15 +326,71 @@
         }
     }
 
-    async function fetchPeaks(url, force = false) {
-        if (!force && peaksCache.has(url)) {
-            return peaksCache.get(url);
+    function peaksRequestUrl(url, waitSeconds = 0) {
+        if (!waitSeconds) {
+            return url;
         }
-        if (!force && peaksInflight.has(url)) {
-            return peaksInflight.get(url);
+        const separator = url.includes("?") ? "&" : "?";
+        return `${url}${separator}wait=${waitSeconds}`;
+    }
+
+    function runCountdown(seconds = WAVEFORM_WAIT_SEC) {
+        return new Promise((resolve) => {
+            loadingEl.classList.remove("hidden");
+            let remaining = seconds;
+            if (countdownEl) {
+                countdownEl.textContent = String(remaining);
+            }
+            const timer = setInterval(() => {
+                remaining -= 1;
+                if (remaining <= 0) {
+                    clearInterval(timer);
+                    resolve();
+                    return;
+                }
+                if (countdownEl) {
+                    countdownEl.textContent = String(remaining);
+                }
+            }, 1000);
+        });
+    }
+
+    function waitForPrecisePeaks(url, timeoutMs = 12000) {
+        const started = Date.now();
+        return new Promise((resolve) => {
+            const attempt = async () => {
+                try {
+                    const data = await fetchPeaks(url, true);
+                    if (data?.precise && data.peaks?.length) {
+                        resolve(data);
+                        return;
+                    }
+                } catch {
+                    // keep trying
+                }
+                if (Date.now() - started >= timeoutMs) {
+                    resolve(null);
+                    return;
+                }
+                setTimeout(attempt, 800);
+            };
+            attempt();
+        });
+    }
+
+    async function fetchPeaks(url, force = false, waitSeconds = 0) {
+        const requestUrl = force ? url : peaksRequestUrl(url, waitSeconds);
+        if (!force && waitSeconds === 0 && peaksCache.has(url)) {
+            const cached = peaksCache.get(url);
+            if (cached?.precise && cached.peaks?.length) {
+                return cached;
+            }
+        }
+        if (!force && peaksInflight.has(requestUrl)) {
+            return peaksInflight.get(requestUrl);
         }
 
-        const request = fetch(url)
+        const request = fetch(requestUrl)
             .then((response) => {
                 if (!response.ok) {
                     throw new Error("Wavevorm laden mislukt");
@@ -369,14 +398,16 @@
                 return response.json();
             })
             .then((data) => {
-                peaksCache.set(url, { ...(peaksCache.get(url) || {}), ...data });
-                return peaksCache.get(url);
+                if (data?.precise && data.peaks?.length) {
+                    peaksCache.set(url, { ...(peaksCache.get(url) || {}), ...data });
+                }
+                return peaksCache.get(url) || data;
             })
             .finally(() => {
-                peaksInflight.delete(url);
+                peaksInflight.delete(requestUrl);
             });
 
-        peaksInflight.set(url, request);
+        peaksInflight.set(requestUrl, request);
         return request;
     }
 
@@ -395,21 +426,6 @@
         revealControls();
     }
 
-    function startPreciseUpgrade(url) {
-        clearPrecisePoll();
-        precisePollTimer = setInterval(async () => {
-            try {
-                const data = await fetchPeaks(url, true);
-                if (data.precise && data.peaks && data.peaks.length > 0) {
-                    applyPeaksData(data);
-                    clearPrecisePoll();
-                }
-            } catch {
-                // keep trying quietly
-            }
-        }, 2000);
-    }
-
     function pointerToFocusRatio(event) {
         const rect = canvas.getBoundingClientRect();
         return Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
@@ -426,14 +442,12 @@
         drawWaveform();
     }
 
-    function loadPlayerData(data, fallbackTitle, { allowUpgrade = true } = {}) {
+    function loadPlayerData(data, fallbackTitle) {
         titleEl.textContent = data.title || fallbackTitle;
         if (data.is_live) {
             subtitleEl.textContent = "Live opname";
-        } else if (data.precise) {
-            subtitleEl.textContent = "Volledig uur";
         } else {
-            subtitleEl.textContent = "Voorbeeld — echte wavevorm volgt";
+            subtitleEl.textContent = "Volledig uur";
         }
 
         if (data.recording_id && !data.is_live) {
@@ -444,9 +458,6 @@
         }
 
         applyPeaksData(data);
-        if (allowUpgrade && !data.precise && peaksUrl) {
-            startPreciseUpgrade(peaksUrl);
-        }
     }
 
     async function openPlayer(button) {
@@ -465,12 +476,15 @@
         destroyPlayer();
         modal.classList.remove("hidden");
         document.body.classList.add("overflow-hidden");
-        loadingEl.classList.add("hidden");
-        controlsEl.classList.remove("opacity-40", "pointer-events-none");
+        controlsEl.classList.add("opacity-40", "pointer-events-none");
         titleEl.textContent = fallbackTitle;
+        subtitleEl.textContent = "Wavevorm voorbereiden…";
         currentTimeEl.textContent = "0:00";
+        totalTimeEl.textContent = formatTime(buttonDuration);
         trimLink.classList.add("hidden");
         setPlayingState(false);
+        peaks = [];
+        resizeCanvas();
 
         const inlinePeaks = parseInlinePeaks(button.dataset.peaks);
         const cachedMeta = peaksCache.get(url) || {};
@@ -480,43 +494,52 @@
             cachedMeta.duration = buttonDuration;
             peaksCache.set(url, cachedMeta);
         }
-        const instantData = buildInstantPeakData(buttonDuration, cachedMeta);
-        loadPlayerData(instantData, fallbackTitle, { allowUpgrade: !instantData.precise });
 
-        audio = new Audio(audioUrl);
-        audio.preload = "metadata";
+        const hasCachedPeaks = Boolean(cachedMeta.precise && cachedMeta.peaks?.length);
+        const peaksPromise = hasCachedPeaks
+            ? Promise.resolve(cachedMeta)
+            : fetchPeaks(url, false, WAVEFORM_WAIT_SEC);
 
-        audio.addEventListener("play", () => setPlayingState(true));
-        audio.addEventListener("pause", () => setPlayingState(false));
-        audio.addEventListener("ended", () => setPlayingState(false));
-        audio.addEventListener("loadedmetadata", () => {
-            if (audio.duration && Number.isFinite(audio.duration)) {
-                duration = audio.duration;
-                totalTimeEl.textContent = formatTime(duration);
+        try {
+            const [, peakData] = await Promise.all([runCountdown(WAVEFORM_WAIT_SEC), peaksPromise]);
+            let data = peakData;
+            if (!data?.precise || !data.peaks?.length) {
+                data = await waitForPrecisePeaks(url);
             }
-        });
+            if (!data?.peaks?.length) {
+                throw new Error("Wavevorm kon niet worden geladen");
+            }
 
-        resizeCanvas();
-        startAnimation();
+            loadingEl.classList.add("hidden");
+            loadPlayerData({ ...cachedMeta, ...data, duration: data.duration || buttonDuration }, fallbackTitle);
 
-        if (instantData.precise && instantData.peaks?.length) {
+            audio = new Audio(audioUrl);
+            audio.preload = "metadata";
+            audio.addEventListener("play", () => setPlayingState(true));
+            audio.addEventListener("pause", () => setPlayingState(false));
+            audio.addEventListener("ended", () => setPlayingState(false));
+            audio.addEventListener("loadedmetadata", () => {
+                if (audio.duration && Number.isFinite(audio.duration)) {
+                    duration = audio.duration;
+                    totalTimeEl.textContent = formatTime(duration);
+                }
+            });
+
+            controlsEl.classList.remove("opacity-40", "pointer-events-none");
+            resizeCanvas();
+            startAnimation();
+        } catch (error) {
+            loadingEl.classList.remove("hidden");
+            if (countdownEl) {
+                countdownEl.textContent = "!";
+            }
+            subtitleEl.textContent = error.message || "Wavevorm laden mislukt";
+            controlsEl.classList.add("opacity-40", "pointer-events-none");
+        } finally {
             if (activeButton) {
                 activeButton.disabled = false;
             }
-            return;
         }
-
-        fetchPeaks(url)
-            .then((data) => loadPlayerData({ ...cachedMeta, ...data }, fallbackTitle))
-            .catch((error) => {
-                subtitleEl.textContent = error.message || "Wavevorm kon niet worden verfijnd";
-            })
-            .finally(() => {
-                if (activeButton) {
-                    activeButton.disabled = false;
-                }
-            });
-        return;
     }
 
     document.querySelectorAll(".listen-btn").forEach((button) => {

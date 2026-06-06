@@ -30,7 +30,11 @@ from app.peaks import (
     read_peaks_fast,
     warm_missing_peaks,
 )
-from app.recorder import get_partial_path_for_hour, get_partial_recording_path
+from app.recorder import (
+    finalize_stale_recording,
+    get_partial_path_for_hour,
+    get_partial_recording_path,
+)
 from app.scheduler import setup_scheduler, shutdown_scheduler
 from app.stations import load_stations, get_station_by_id
 from app.admin_auth import get_session_middleware_kwargs
@@ -386,16 +390,25 @@ def _recording_audio_url(recording) -> str:
 
 
 @app.get("/api/peaks/{recording_id}")
-def api_peaks(recording_id: int, session: Session = Depends(get_session)):
+def api_peaks(
+    recording_id: int,
+    wait: float = Query(default=0, ge=0, le=10),
+    session: Session = Depends(get_session),
+):
     recording = get_recording_by_id(session, recording_id)
     if not recording or recording.status not in ("completed", "recording"):
         raise HTTPException(status_code=404, detail="Recording not found")
+
+    if recording.status == "recording":
+        station = get_station_by_id(recording.station_id)
+        if station:
+            recording = finalize_stale_recording(session, station, recording)
 
     audio_path = _recording_audio_path(recording)
     if not audio_path:
         raise HTTPException(status_code=404, detail="Audio file not found")
 
-    peak_data = read_peaks_fast(audio_path)
+    peak_data = read_peaks_fast(audio_path, max_wait=wait)
     payload = {
         "peaks": peak_data["peaks"],
         "duration": peak_data["duration"],
@@ -419,6 +432,7 @@ def api_peaks_hour(
     station_id: str,
     date: str = Query(...),
     hour: int = Query(..., ge=0, le=23),
+    wait: float = Query(default=0, ge=0, le=10),
     session: Session = Depends(get_session),
 ):
     station = get_station_by_id(station_id)
@@ -430,7 +444,7 @@ def api_peaks_hour(
     if not audio_path:
         raise HTTPException(status_code=404, detail="Audio file not found")
 
-    peak_data = read_peaks_fast(audio_path)
+    peak_data = read_peaks_fast(audio_path, max_wait=wait)
     return JSONResponse(
         content={
             "peaks": peak_data["peaks"],
