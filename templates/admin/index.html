@@ -117,7 +117,7 @@
 <div class="mb-6">
     <p class="text-xs font-medium text-violet-400 mb-1">Radio</p>
     <h1 class="text-xl font-bold text-heading tracking-tight">Zenders beheren</h1>
-    <p class="text-xs text-slate-500 mt-1">{{ date_label }} · opname elk heel uur in lokale tijdzone</p>
+    <p class="text-xs text-slate-500 mt-1">{{ date_label }} · opname elk heel uur · MP3 128 kbps · standaard {{ default_retention_days }} dagen bewaard</p>
 </div>
 
 {% if notice == 'added' %}
@@ -224,7 +224,13 @@
                             <label class="field-label">Einddatum</label>
                             <input type="date" name="event_end_date" class="field-input text-xs">
                         </div>
+                        <div class="flex-1 min-w-[140px]">
+                            <label class="field-label">Bewaren (dagen)</label>
+                            <input type="number" name="retention_days" min="1" max="365"
+                                   value="{{ default_event_retention_days }}" class="field-input text-xs">
+                        </div>
                     </div>
+                    <p class="text-[10px] text-slate-400 mt-1 hidden event-hint">Standaard zenders: {{ default_retention_days }} dagen automatisch.</p>
                 </div>
             </div>
         </div>
@@ -307,6 +313,10 @@
                             <div class="flex gap-1.5 sm:col-span-2">
                                 <dt class="text-slate-400 shrink-0">Stream</dt>
                                 <dd class="text-slate-600 font-mono truncate">{{ station.url }}</dd>
+                            </div>
+                            <div class="flex gap-1.5 sm:col-span-2">
+                                <dt class="text-slate-400 shrink-0">Bewaring</dt>
+                                <dd class="text-slate-600">{{ station.retention_label }}</dd>
                             </div>
                             <div class="flex gap-1.5 sm:col-span-2">
                                 <dt class="text-slate-400 shrink-0">Schema</dt>
@@ -398,6 +408,11 @@
                                 <div class="flex-1 min-w-[140px]">
                                     <label class="field-label">Einddatum</label>
                                     <input type="date" name="event_end_date" value="{{ station.event_end_date }}" class="field-input text-xs">
+                                </div>
+                                <div class="flex-1 min-w-[140px]">
+                                    <label class="field-label">Bewaren (dagen)</label>
+                                    <input type="number" name="retention_days" min="1" max="365"
+                                           value="{{ station.retention_days or default_event_retention_days }}" class="field-input text-xs">
                                 </div>
                             </div>
                         </div>

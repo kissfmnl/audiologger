@@ -19,6 +19,8 @@ from app.scheduler import (
 )
 from app.stations import (
     COUNTRIES,
+    DEFAULT_EVENT_RETENTION_DAYS,
+    DEFAULT_RETENTION_DAYS,
     DEFAULT_TIMEZONE,
     create_station,
     delete_station,
@@ -133,6 +135,8 @@ def admin_dashboard(request: Request):
             "countries": COUNTRIES,
             "timezone_groups": get_timezone_groups(),
             "default_timezone": DEFAULT_TIMEZONE,
+            "default_retention_days": DEFAULT_RETENTION_DAYS,
+            "default_event_retention_days": DEFAULT_EVENT_RETENTION_DAYS,
             "date_label": format_dutch_date(),
             "active_nav": "stations",
             "focus_id": request.query_params.get("focus", ""),
@@ -155,6 +159,7 @@ def admin_create_station(
     is_event: str | None = Form(default=None),
     event_start_date: str = Form(default=""),
     event_end_date: str = Form(default=""),
+    retention_days: str = Form(default=""),
     active: str | None = Form(default=None),
     logo_data: str = Form(default=""),
 ):
@@ -175,6 +180,7 @@ def admin_create_station(
             is_event=is_event == "on",
             event_start_date=event_start_date or None,
             event_end_date=event_end_date or None,
+            retention_days=retention_days or None,
             active=active == "on",
         )
         if logo_data:
@@ -206,6 +212,7 @@ def admin_update_station(
     is_event: str | None = Form(default=None),
     event_start_date: str = Form(default=""),
     event_end_date: str = Form(default=""),
+    retention_days: str = Form(default=""),
     active: str | None = Form(default=None),
     logo_data: str = Form(default=""),
 ):
@@ -224,6 +231,7 @@ def admin_update_station(
             is_event=is_event == "on",
             event_start_date=event_start_date or None,
             event_end_date=event_end_date or None,
+            retention_days=retention_days or None,
             active=active == "on",
         )
         if logo_data:

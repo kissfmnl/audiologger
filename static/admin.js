@@ -102,7 +102,9 @@ function initEventToggles() {
         if (!toggle || !dates) return;
 
         const sync = () => {
-            dates.classList.toggle('hidden', !toggle.checked);
+            const on = toggle.checked;
+            dates.classList.toggle('hidden', !on);
+            row.querySelectorAll('.event-hint').forEach((el) => el.classList.toggle('hidden', !on));
         };
 
         toggle.addEventListener('change', sync);

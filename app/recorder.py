@@ -8,6 +8,7 @@ from app.database import LOGS_DIR, RECORDINGS_DIR, engine
 from app.models import Recording
 
 RECORDING_DURATION_SECONDS = 3600
+MP3_BITRATE = "128k"
 
 
 def sanitize_name(name: str) -> str:
@@ -41,8 +42,13 @@ def run_ffmpeg_record(url: str, output_path: Path, log_path: Path) -> tuple[bool
         url,
         "-t",
         str(RECORDING_DURATION_SECONDS),
-        "-acodec",
-        "copy",
+        "-vn",
+        "-c:a",
+        "libmp3lame",
+        "-b:a",
+        MP3_BITRATE,
+        "-ar",
+        "44100",
         str(output_path),
     ]
 

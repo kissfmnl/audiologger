@@ -7,6 +7,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
 from app.recorder import record_station
+from app.retention import cleanup_expired_recordings
 from app.stations import get_station_by_id, load_stations, recording_start_time, should_record_station
 
 logger = logging.getLogger(__name__)
@@ -110,11 +111,20 @@ def reload_scheduler() -> BackgroundScheduler:
             station["schedule_label"],
         )
 
+    scheduler.add_job(
+        cleanup_expired_recordings,
+        trigger=CronTrigger(hour=4, minute=0),
+        id="cleanup_recordings",
+        replace_existing=True,
+    )
+
     return scheduler
 
 
 def setup_scheduler() -> BackgroundScheduler:
-    return reload_scheduler()
+    scheduler_result = reload_scheduler()
+    cleanup_expired_recordings()
+    return scheduler_result
 
 
 def shutdown_scheduler() -> None:

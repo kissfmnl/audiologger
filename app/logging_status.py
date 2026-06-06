@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 from app.database import engine
 from app.models import Recording
 from app.scheduler import scheduler
-from app.stations import load_stations, should_record_station
+from app.stations import load_stations, retention_label, should_record_station
 
 
 def skip_reason(station: dict) -> str | None:
@@ -84,6 +84,7 @@ def get_logging_overview() -> dict:
                 "station": station,
                 "state": state,
                 "detail": detail,
+                "retention_label": retention_label(station),
                 "will_log": will_log,
                 "scheduled": job is not None,
                 "next_run": next_run.strftime("%d-%m-%Y %H:%M") if next_run else "—",

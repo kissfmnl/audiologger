@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 STATIONS_CONFIG = BASE_DIR / "config" / "stations.yaml"
 STATION_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 DEFAULT_TIMEZONE = "Europe/Amsterdam"
+DEFAULT_RETENTION_DAYS = 7
+DEFAULT_EVENT_RETENTION_DAYS = 30
+MAX_RETENTION_DAYS = 365
 
 COUNTRIES = [
     {"code": "NL", "name": "Nederland", "flag": "🇳🇱", "default_timezone": "Europe/Amsterdam"},
@@ -148,9 +151,41 @@ def format_schedule_label(station: dict) -> str:
     if station.get("is_event"):
         start = station.get("event_start_date") or "—"
         end = station.get("event_end_date") or "—"
-        return f"Evenement · {start} t/m {end}"
+        days = retention_days_for_station(station)
+        return f"Evenement · {start} t/m {end} · bewaard {days} dagen"
     tz = station.get("timezone", "Europe/Amsterdam")
-    return f"Hele dag · elk uur ({tz})"
+    return f"Hele dag · elk uur ({tz}) · bewaard {DEFAULT_RETENTION_DAYS} dagen"
+
+
+def retention_days_for_station(station: dict) -> int:
+    if station.get("is_event"):
+        days = station.get("retention_days")
+        if days is None:
+            return DEFAULT_EVENT_RETENTION_DAYS
+        return int(days)
+    return DEFAULT_RETENTION_DAYS
+
+
+def retention_label(station: dict) -> str:
+    return f"{retention_days_for_station(station)} dagen"
+
+
+def parse_retention_days(is_event: bool, retention_days: str | int | None) -> int | None:
+    if not is_event:
+        return None
+
+    if retention_days is None or retention_days == "":
+        return DEFAULT_EVENT_RETENTION_DAYS
+
+    try:
+        days = int(retention_days)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Bewaartermijn moet een heel aantal dagen zijn") from exc
+
+    if days < 1 or days > MAX_RETENTION_DAYS:
+        raise ValueError(f"Bewaartermijn moet tussen 1 en {MAX_RETENTION_DAYS} dagen liggen")
+
+    return days
 
 
 def station_to_dict(station: Station) -> dict:
@@ -175,11 +210,13 @@ def station_to_dict(station: Station) -> dict:
         "is_event": station.is_event,
         "event_start_date": station.event_start_date or "",
         "event_end_date": station.event_end_date or "",
+        "retention_days": station.retention_days,
         "active": station.active,
         "logo_path": station.logo_path,
         "logo_url": logo_url,
     }
     data["schedule_label"] = format_schedule_label(data)
+    data["retention_label"] = retention_label(data)
     return data
 
 
@@ -195,6 +232,7 @@ def _station_backup_row(station: Station) -> dict:
         "is_event": station.is_event,
         "event_start_date": station.event_start_date,
         "event_end_date": station.event_end_date,
+        "retention_days": station.retention_days,
         "active": station.active,
         "logo_path": station.logo_path,
     }
@@ -230,6 +268,7 @@ def _restore_from_backup_file(path: Path) -> int:
                     is_event=bool(item.get("is_event", False)),
                     event_start_date=item.get("event_start_date"),
                     event_end_date=item.get("event_end_date"),
+                    retention_days=item.get("retention_days"),
                     active=bool(item.get("active", True)),
                     logo_path=item.get("logo_path"),
                 )
@@ -300,6 +339,7 @@ def migrate_station_schema() -> None:
         "is_event": "INTEGER DEFAULT 0",
         "event_start_date": "TEXT",
         "event_end_date": "TEXT",
+        "retention_days": "INTEGER",
     }
 
     with engine.connect() as conn:
@@ -485,6 +525,7 @@ def create_station(
     is_event: bool = False,
     event_start_date: str | None = None,
     event_end_date: str | None = None,
+    retention_days: str | int | None = None,
     active: bool = True,
 ) -> Station:
     validate_station_id(station_id)
@@ -494,6 +535,7 @@ def create_station(
     is_event, event_start_date, event_end_date = parse_event_dates(
         is_event, event_start_date, event_end_date
     )
+    parsed_retention = parse_retention_days(is_event, retention_days)
 
     if session.get(Station, station_id):
         raise ValueError(f"Zender met ID '{station_id}' bestaat al")
@@ -510,6 +552,7 @@ def create_station(
         is_event=is_event,
         event_start_date=event_start_date,
         event_end_date=event_end_date,
+        retention_days=parsed_retention,
         active=active,
     )
     session.add(station)
@@ -529,6 +572,7 @@ def update_station(
     is_event: bool,
     event_start_date: str | None,
     event_end_date: str | None,
+    retention_days: str | int | None,
     active: bool,
 ) -> Station:
     station = session.get(Station, station_id)
@@ -541,6 +585,7 @@ def update_station(
     is_event, event_start_date, event_end_date = parse_event_dates(
         is_event, event_start_date, event_end_date
     )
+    parsed_retention = parse_retention_days(is_event, retention_days)
     info = get_country_info(country)
 
     station.name = name.strip()
@@ -552,6 +597,7 @@ def update_station(
     station.is_event = is_event
     station.event_start_date = event_start_date
     station.event_end_date = event_end_date
+    station.retention_days = parsed_retention
     station.active = active
 
     session.add(station)

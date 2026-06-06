@@ -15,6 +15,7 @@ class Station(SQLModel, table=True):
     is_event: bool = Field(default=False)
     event_start_date: Optional[str] = Field(default=None)
     event_end_date: Optional[str] = Field(default=None)
+    retention_days: Optional[int] = Field(default=None)
     active: bool = Field(default=True)
     logo_path: Optional[str] = Field(default=None)
 
