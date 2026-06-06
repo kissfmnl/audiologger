@@ -13,11 +13,8 @@ from app.stations import get_station_by_id, load_stations, recording_start_time,
 logger = logging.getLogger(__name__)
 scheduler = BackgroundScheduler()
 
-RECORDING_MINUTE = 2
-RETRY_DELAYS_MINUTES = [8, 18, 35]
 
-
-def scheduled_record(station_id: str, retry_round: int = 0) -> None:
+def scheduled_record(station_id: str) -> None:
     station = get_station_by_id(station_id)
     if not station:
         logger.warning("Station %s not found, skipping recording", station_id)
@@ -42,40 +39,7 @@ def scheduled_record(station_id: str, retry_round: int = 0) -> None:
             recording.status,
         )
     except Exception as exc:
-        logger.warning("Recording failed for %s (round %d): %s", station_id, retry_round, exc)
-        if retry_round < len(RETRY_DELAYS_MINUTES):
-            schedule_hour_retry(station_id, start_time, retry_round + 1)
-
-
-def schedule_hour_retry(station_id: str, start_time: datetime, retry_round: int) -> None:
-    delay = RETRY_DELAYS_MINUTES[retry_round - 1]
-    run_at = datetime.now() + timedelta(minutes=delay)
-    hour_end = start_time + timedelta(hours=1)
-
-    if run_at >= hour_end - timedelta(minutes=2):
-        logger.warning(
-            "No more retries for %s at %s (too close to hour end)",
-            station_id,
-            start_time,
-        )
-        return
-
-    job_id = f"record_retry_{station_id}_{start_time.strftime('%Y%m%d%H')}_{retry_round}"
-    scheduler.add_job(
-        scheduled_record,
-        trigger=DateTrigger(run_date=run_at),
-        args=[station_id],
-        kwargs={"retry_round": retry_round},
-        id=job_id,
-        replace_existing=True,
-    )
-    logger.info(
-        "Scheduled retry %d for %s at %s (in %d min)",
-        retry_round,
-        station_id,
-        run_at.strftime("%H:%M"),
-        delay,
-    )
+        logger.warning("Recording failed for %s: %s", station_id, exc)
 
 
 def next_whole_hour(station: dict, moment: datetime | None = None) -> datetime:
@@ -100,9 +64,8 @@ def schedule_first_recording(station_id: str) -> datetime | None:
     if not should_record_station(station):
         return None
 
-    run_at = next_whole_hour(station)
-    run_at = run_at.replace(minute=RECORDING_MINUTE, second=0, microsecond=0)
     tz = ZoneInfo(station["timezone"])
+    run_at = next_whole_hour(station)
     now = datetime.now(tz)
     if run_at <= now:
         run_at = run_at + timedelta(hours=1)
@@ -143,11 +106,11 @@ def reload_scheduler() -> BackgroundScheduler:
 
         scheduler.add_job(
             scheduled_record,
-            trigger=CronTrigger(minute=RECORDING_MINUTE, hour="*", timezone=tz),
+            trigger=CronTrigger(minute=0, hour="*", timezone=tz),
             args=[station["id"]],
             id=f"record_{station['id']}",
             replace_existing=True,
-            misfire_grace_time=900,
+            misfire_grace_time=300,
             max_instances=1,
             coalesce=True,
         )

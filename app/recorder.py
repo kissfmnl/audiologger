@@ -1,8 +1,10 @@
 import logging
+import shutil
 import subprocess
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, select
 
@@ -14,7 +16,6 @@ logger = logging.getLogger(__name__)
 RECORDING_DURATION_SECONDS = 3600
 MP3_BITRATE = "128k"
 RECORDING_USER_AGENT = "Mozilla/5.0 (compatible; AudioLogger/1.0)"
-ATTEMPT_DELAYS_SECONDS = [0, 20, 60, 120]
 
 
 def sanitize_name(name: str) -> str:
@@ -60,7 +61,7 @@ def _ffmpeg_input_args(url: str) -> list[str]:
         "-reconnect_streamed",
         "1",
         "-reconnect_delay_max",
-        "10",
+        "5",
         "-rw_timeout",
         "15000000",
         "-user_agent",
@@ -70,7 +71,12 @@ def _ffmpeg_input_args(url: str) -> list[str]:
     ]
 
 
-def run_ffmpeg_record(url: str, output_path: Path, log_path: Path) -> tuple[bool, str]:
+def run_ffmpeg_record(
+    url: str,
+    output_path: Path,
+    log_path: Path,
+    duration_seconds: int = RECORDING_DURATION_SECONDS,
+) -> tuple[bool, str]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -79,7 +85,7 @@ def run_ffmpeg_record(url: str, output_path: Path, log_path: Path) -> tuple[bool
         "-y",
         *_ffmpeg_input_args(url),
         "-t",
-        str(RECORDING_DURATION_SECONDS),
+        str(duration_seconds),
         "-vn",
         "-c:a",
         "libmp3lame",
@@ -97,7 +103,7 @@ def run_ffmpeg_record(url: str, output_path: Path, log_path: Path) -> tuple[bool
             cmd,
             capture_output=True,
             text=True,
-            timeout=RECORDING_DURATION_SECONDS + 180,
+            timeout=duration_seconds + 120,
         )
 
         log_content = (
@@ -106,7 +112,8 @@ def run_ffmpeg_record(url: str, output_path: Path, log_path: Path) -> tuple[bool
             f"--- STDOUT ---\n{result.stdout}\n"
             f"--- STDERR ---\n{result.stderr}\n"
         )
-        log_path.write_text(log_content, encoding="utf-8")
+        with log_path.open("a", encoding="utf-8") as log_file:
+            log_file.write(f"\n--- segment {time.strftime('%H:%M:%S')} ---\n{log_content}")
 
         if result.returncode != 0:
             error = (result.stderr or result.stdout or "").strip()
@@ -118,15 +125,56 @@ def run_ffmpeg_record(url: str, output_path: Path, log_path: Path) -> tuple[bool
         return True, ""
 
     except subprocess.TimeoutExpired:
-        log_path.write_text(
-            f"Command: {' '.join(cmd)}\nRecording timed out.\n",
-            encoding="utf-8",
-        )
+        with log_path.open("a", encoding="utf-8") as log_file:
+            log_file.write(f"\n--- segment {time.strftime('%H:%M:%S')} ---\nRecording timed out.\n")
         return False, "Recording timed out"
     except FileNotFoundError:
         return False, "ffmpeg not found on system PATH"
     except OSError as exc:
         return False, str(exc)
+
+
+def concat_mp3_segments(segments: list[Path], output_path: Path) -> bool:
+    if not segments:
+        return False
+
+    if len(segments) == 1:
+        shutil.move(str(segments[0]), str(output_path))
+        return output_path.exists() and output_path.stat().st_size > 0
+
+    list_path = output_path.with_suffix(".concat.txt")
+    list_path.write_text(
+        "\n".join(f"file '{segment.resolve()}'" for segment in segments),
+        encoding="utf-8",
+    )
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-nostdin",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(list_path),
+        "-c",
+        "copy",
+        "-y",
+        str(output_path),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        list_path.unlink(missing_ok=True)
+        if result.returncode != 0:
+            logger.error("Concat failed: %s", (result.stderr or result.stdout)[-500:])
+            return False
+        return output_path.exists() and output_path.stat().st_size > 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        logger.error("Concat failed: %s", exc)
+        list_path.unlink(missing_ok=True)
+        return False
 
 
 def save_recording_to_db(
@@ -186,8 +234,11 @@ def save_recording_to_db(
 
 
 def record_station(station: dict, start_time: datetime | None = None) -> Recording:
+    tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
+
     if start_time is None:
-        start_time = datetime.now().replace(minute=0, second=0, microsecond=0)
+        now = datetime.now(tz)
+        start_time = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
 
     if has_completed_recording(station["id"], start_time):
         with Session(engine) as session:
@@ -199,47 +250,70 @@ def record_station(station: dict, start_time: datetime | None = None) -> Recordi
                 )
             ).one()
 
+    hour_start = start_time.replace(tzinfo=tz)
+    hour_end = hour_start + timedelta(hours=1)
+
     output_path = build_output_path(station, start_time)
     log_path = LOGS_DIR / f"{output_path.stem}.log"
+    log_path.write_text(f"Recording hour {start_time.isoformat()}\n", encoding="utf-8")
 
-    success = False
+    parts_dir = output_path.parent / f".{output_path.stem}_parts"
+    parts_dir.mkdir(parents=True, exist_ok=True)
+    segments: list[Path] = []
+    segment_idx = 0
     last_error = ""
 
-    for attempt, delay in enumerate(ATTEMPT_DELAYS_SECONDS):
-        if delay:
-            logger.info(
-                "Retry recording %s (%s) in %ss (attempt %d)",
+    try:
+        while datetime.now(tz) < hour_end:
+            remaining = int((hour_end - datetime.now(tz)).total_seconds())
+            if remaining < 1:
+                break
+
+            segment_path = parts_dir / f"part{segment_idx:04d}.mp3"
+            success, last_error = run_ffmpeg_record(
+                station["url"],
+                segment_path,
+                log_path,
+                duration_seconds=remaining,
+            )
+
+            if segment_path.exists() and segment_path.stat().st_size > 0:
+                segments.append(segment_path)
+                segment_idx += 1
+
+            if success:
+                break
+
+            logger.warning(
+                "Stream error for %s at %s, restarting immediately: %s",
                 station["id"],
                 start_time.strftime("%Y-%m-%d %H:%M"),
-                delay,
-                attempt + 1,
+                last_error,
             )
-            time.sleep(delay)
+            if segment_path.exists() and segment_path.stat().st_size == 0:
+                segment_path.unlink(missing_ok=True)
 
-        success, last_error = run_ffmpeg_record(station["url"], output_path, log_path)
-        if success:
-            break
-        if output_path.exists():
+        success = bool(segments) and concat_mp3_segments(segments, output_path)
+        status = "completed" if success else "failed"
+
+        if not success and output_path.exists():
             output_path.unlink(missing_ok=True)
 
-    status = "completed" if success else "failed"
+        with Session(engine) as session:
+            recording = save_recording_to_db(
+                session,
+                station,
+                start_time,
+                output_path,
+                status,
+                error_message=None if success else last_error,
+            )
 
-    if not success and output_path.exists():
-        output_path.unlink(missing_ok=True)
+        if not success:
+            raise RuntimeError(
+                f"Recording failed for {station['id']} at {start_time.isoformat()}: {last_error}"
+            )
 
-    with Session(engine) as session:
-        recording = save_recording_to_db(
-            session,
-            station,
-            start_time,
-            output_path,
-            status,
-            error_message=None if success else last_error,
-        )
-
-    if not success:
-        raise RuntimeError(
-            f"Recording failed for {station['id']} after {len(ATTEMPT_DELAYS_SECONDS)} attempts: {last_error}"
-        )
-
-    return recording
+        return recording
+    finally:
+        shutil.rmtree(parts_dir, ignore_errors=True)
