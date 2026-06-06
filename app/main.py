@@ -89,6 +89,23 @@ def format_date_tab_short_label(day: date, today: date) -> str:
     return f"{DUTCH_WEEKDAYS_SHORT[day.weekday()]} {day.day:02d}"
 
 
+def station_url(
+    station_id: str,
+    day: date | str | None = None,
+    country: str | None = None,
+    *,
+    today: date | None = None,
+) -> str:
+    url = f"/station/{station_id}"
+    if day is not None:
+        day_iso = day.isoformat() if isinstance(day, date) else day
+        if today is None or day_iso != today.isoformat():
+            url = f"{url}/{day_iso}"
+    if country and country.upper() != "ALL":
+        url = f"{url}?country={country.upper()}"
+    return url
+
+
 def build_date_tabs(station: dict, days: int = 7) -> list[dict]:
     today = station_today(station)
     tabs = []
@@ -173,10 +190,14 @@ def build_station_page_context(
         "countries": countries,
         "selected_country": selected_country,
         "selected_date": selected_date,
+        "today": today,
         "date_tabs": build_date_tabs(station),
         "hour_slots": hour_slots,
         "peaks_bootstrap": _build_peaks_bootstrap(station, selected_date, hour_slots),
     }
+
+
+templates.env.globals["station_url"] = station_url
 
 
 class TrimRequest(BaseModel):
@@ -244,14 +265,17 @@ def dashboard(
     if not stations:
         return templates.TemplateResponse(request, "dashboard.html", {})
 
-    query = f"?country={country}" if country and country.upper() != "ALL" else ""
-    return RedirectResponse(url=f"/station/{stations[0]['id']}{query}", status_code=302)
+    first = stations[0]
+    url = station_url(first["id"], today=station_today(first), country=country)
+    return RedirectResponse(url=url, status_code=302)
 
 
 @app.get("/station/{station_id}", response_class=HTMLResponse)
+@app.get("/station/{station_id}/{path_date}", response_class=HTMLResponse)
 def station_page(
     request: Request,
     station_id: str,
+    path_date: str | None = None,
     date: str | None = Query(default=None),
     country: str | None = Query(default=None),
     session: Session = Depends(get_session),
@@ -260,19 +284,36 @@ def station_page(
     if not station:
         raise HTTPException(status_code=404, detail="Station not found")
 
+    today = station_today(station)
     selected_country = country or "ALL"
+
+    if date is not None and path_date is None:
+        try:
+            legacy_day = date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Invalid date")
+        url = station_url(station_id, legacy_day, selected_country, today=today)
+        return RedirectResponse(url=url, status_code=301)
+
+    date_filter: str | None = None
+    if path_date is not None:
+        try:
+            date_filter = date.fromisoformat(path_date).isoformat()
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Invalid date")
+
     filtered = filter_stations_by_country(load_stations(active_only=False), selected_country)
     if filtered and station_id not in {s["id"] for s in filtered}:
         target = filtered[0]["id"]
-        query = f"date={date or station_today(station).isoformat()}"
-        if selected_country != "ALL":
-            query += f"&country={selected_country}"
-        return RedirectResponse(url=f"/station/{target}?{query}", status_code=302)
+        target_today = station_today(target)
+        day = date_filter or today.isoformat()
+        url = station_url(target, day, selected_country, today=target_today)
+        return RedirectResponse(url=url, status_code=302)
 
     return templates.TemplateResponse(
         request,
         "station.html",
-        build_station_page_context(station, session, country, date),
+        build_station_page_context(station, session, selected_country, date_filter),
     )
 
 
@@ -301,6 +342,9 @@ def player_page(
         audio_url = f"/recordings/live/{recording.id}"
 
     station = get_station_by_id(recording.station_id)
+    rec_day = recording.start_time.date() if recording.start_time else None
+    today = station_today(station) if station else date.today()
+    back_url = station_url(recording.station_id, rec_day, today=today) if station else "/"
 
     return templates.TemplateResponse(
         request,
@@ -310,6 +354,7 @@ def player_page(
             "station": station,
             "audio_url": audio_url,
             "is_live": recording.status == "recording",
+            "back_url": back_url,
         },
     )
 

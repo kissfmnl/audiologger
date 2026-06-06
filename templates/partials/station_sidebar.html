@@ -3,12 +3,12 @@
         <div class="px-3 py-3 border-b border-gray-100">
             <p class="text-[11px] font-semibold uppercase tracking-wide text-muted mb-2 px-1">Land</p>
             <div class="flex flex-wrap gap-1.5">
-                <a href="/station/{{ station.id }}?date={{ selected_date }}"
+                <a href="{{ station_url(station.id, selected_date, 'ALL', today=today) }}"
                    class="px-2.5 py-1 rounded-lg text-xs font-medium transition {% if selected_country == 'ALL' %}bg-purple-600 text-white{% else %}bg-gray-100 text-body hover:bg-gray-200{% endif %}">
                     Alle
                 </a>
                 {% for c in countries %}
-                <a href="/station/{{ station.id }}?date={{ selected_date }}&country={{ c }}"
+                <a href="{{ station_url(station.id, selected_date, c, today=today) }}"
                    class="px-2.5 py-1 rounded-lg text-xs font-medium transition {% if selected_country == c %}bg-purple-600 text-white{% else %}bg-gray-100 text-body hover:bg-gray-200{% endif %}">
                     {{ c }}
                 </a>
@@ -18,7 +18,7 @@
 
         <nav class="p-2 max-h-[calc(100vh-14rem)] overflow-y-auto">
             {% for s in stations %}
-            <a href="/station/{{ s.id }}?date={{ selected_date }}{% if selected_country != 'ALL' %}&country={{ selected_country }}{% endif %}"
+            <a href="{{ station_url(s.id, selected_date, selected_country, today=today) }}"
                class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition mb-0.5 min-w-0
                       {% if s.id == station.id %}bg-purple-600 text-white shadow-sm{% else %}text-body hover:bg-gray-100{% endif %}">
                 {% if s.logo_url %}
