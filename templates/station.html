@@ -21,10 +21,10 @@
             </div>
         </div>
 
-        <div class="flex flex-wrap gap-2 mb-6">
+        <div class="flex gap-2 mb-6 overflow-x-auto pb-1 flex-nowrap">
             {% for tab in date_tabs %}
             <a href="/station/{{ station.id }}?date={{ tab.date }}{% if selected_country != 'ALL' %}&country={{ selected_country }}{% endif %}"
-               class="px-4 py-2 rounded-xl text-sm font-medium transition whitespace-nowrap
+               class="px-4 py-2 rounded-xl text-sm font-medium transition whitespace-nowrap shrink-0
                       {% if tab.date == selected_date %}bg-purple-600 text-white shadow-sm{% else %}bg-surface text-body hover:bg-gray-100 border border-gray-200{% endif %}">
                 {{ tab.label }}
             </a>
@@ -32,43 +32,50 @@
         </div>
 
         <div class="bg-surface rounded-2xl shadow-card border border-gray-100 overflow-hidden">
-            {% if recordings %}
             <div class="px-4 py-2.5 border-b border-gray-100 bg-gray-50/80">
                 <span class="text-[11px] font-semibold uppercase tracking-wide text-muted">Uur</span>
             </div>
             <div class="divide-y divide-gray-100">
-                {% for rec in recordings %}
-                <div class="px-4 py-3 flex items-center justify-between gap-4 hover:bg-gray-50/50 transition">
-                    <span class="text-sm font-medium text-heading tabular-nums">
-                        {{ rec.start_time.strftime('%H:%M:%S') }}
-                    </span>
+                {% for slot in hour_slots %}
+                <div class="px-4 py-3 flex items-center justify-between gap-4 hover:bg-gray-50/50 transition {% if slot.status == 'future' %}opacity-50{% endif %}">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <span class="text-sm font-medium text-heading tabular-nums shrink-0">
+                            {{ slot.label }}
+                        </span>
+                        {% if slot.status == 'recording' %}
+                        <span class="px-2 py-0.5 text-[11px] font-medium rounded-md bg-amber-100 text-amber-800 shrink-0">
+                            Bezig{% if slot.progress_label %} · {{ slot.progress_label }}{% endif %}
+                        </span>
+                        {% elif slot.status == 'completed' %}
+                        <span class="px-2 py-0.5 text-[11px] font-medium rounded-md bg-purple-100 text-purple-700 shrink-0 hidden sm:inline">
+                            Voltooid
+                        </span>
+                        {% elif slot.status == 'missing' %}
+                        <span class="text-xs text-muted hidden sm:inline">Geen opname</span>
+                        {% endif %}
+                    </div>
                     <div class="flex gap-2 shrink-0">
-                        {% if rec.status == 'completed' %}
-                        <a href="/player/{{ rec.id }}"
+                        {% if slot.playable %}
+                        <a href="{{ slot.play_url }}"
                            class="px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition text-xs font-medium">
                             Luister
                         </a>
-                        <a href="/recordings/{{ rec.file_path.split('/')[-1] }}"
-                           download
+                        <a href="{{ slot.download_url }}"
+                           {% if slot.status == 'recording' %}download{% else %}download{% endif %}
                            class="px-3 py-1.5 rounded-lg bg-gray-100 text-body hover:bg-gray-200 transition text-xs font-medium">
                             Download
                         </a>
+                        {% elif slot.status == 'recording' %}
+                        <span class="text-xs text-muted">Even geduld…</span>
+                        {% elif slot.status == 'future' %}
+                        <span class="text-xs text-muted">—</span>
                         {% else %}
-                        <span class="text-xs text-muted">Niet beschikbaar</span>
+                        <span class="text-xs text-muted">—</span>
                         {% endif %}
                     </div>
                 </div>
                 {% endfor %}
             </div>
-            {% else %}
-            <div class="text-center py-16 text-muted">
-                <svg class="w-12 h-12 mx-auto mb-4 text-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
-                </svg>
-                <p class="text-lg mb-1 text-heading">Geen opnames</p>
-                <p class="text-sm">Geen opnames gevonden voor deze dag.</p>
-            </div>
-            {% endif %}
         </div>
     </div>
 </div>

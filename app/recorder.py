@@ -38,6 +38,61 @@ def get_file_size_mb(path: Path) -> float:
     return round(path.stat().st_size / (1024 * 1024), 2)
 
 
+def partial_size_mb(output_path: Path) -> float:
+    parts_dir = output_path.parent / f".{output_path.stem}_parts"
+    if not parts_dir.exists():
+        return 0.0
+    total = sum(part.stat().st_size for part in parts_dir.glob("part*.mp3") if part.exists())
+    return round(total / (1024 * 1024), 2)
+
+
+def is_hour_actively_recording(station: dict, start_time: datetime) -> bool:
+    output_path = build_output_path(station, start_time)
+    parts_dir = output_path.parent / f".{output_path.stem}_parts"
+    if parts_dir.is_dir():
+        for part in parts_dir.glob("part*.mp3"):
+            if part.stat().st_size > 0:
+                return True
+
+    log_path = LOGS_DIR / f"{output_path.stem}.log"
+    if log_path.exists() and time.time() - log_path.stat().st_mtime < 120:
+        return True
+
+    return False
+
+
+def get_partial_path_for_hour(station: dict, start_time: datetime) -> Path | None:
+    output_path = build_output_path(station, start_time)
+    if output_path.exists() and output_path.stat().st_size > 0:
+        return output_path
+
+    parts_dir = output_path.parent / f".{output_path.stem}_parts"
+    if not parts_dir.exists():
+        return None
+
+    parts = sorted(parts_dir.glob("part*.mp3"), key=lambda path: path.stat().st_mtime)
+    for part in reversed(parts):
+        if part.stat().st_size > 0:
+            return part
+    return None
+
+
+def get_partial_recording_path(recording: Recording) -> Path | None:
+    output_path = Path(recording.file_path)
+    if output_path.exists() and output_path.stat().st_size > 0:
+        return output_path
+
+    parts_dir = output_path.parent / f".{output_path.stem}_parts"
+    if not parts_dir.exists():
+        return None
+
+    parts = sorted(parts_dir.glob("part*.mp3"), key=lambda path: path.stat().st_mtime)
+    for part in reversed(parts):
+        if part.stat().st_size > 0:
+            return part
+    return None
+
+
 def has_completed_recording(station_id: str, start_time: datetime) -> bool:
     with Session(engine) as session:
         existing = session.exec(
@@ -187,7 +242,12 @@ def save_recording_to_db(
 ) -> Recording:
     end_time = start_time + timedelta(seconds=RECORDING_DURATION_SECONDS)
     duration = RECORDING_DURATION_SECONDS if status == "completed" else 0
-    file_size = get_file_size_mb(output_path) if status == "completed" else 0.0
+    if status == "completed":
+        file_size = get_file_size_mb(output_path)
+    elif status == "recording":
+        file_size = partial_size_mb(output_path)
+    else:
+        file_size = 0.0
 
     existing = session.exec(
         select(Recording).where(
@@ -263,6 +323,9 @@ def record_station(station: dict, start_time: datetime | None = None) -> Recordi
     segment_idx = 0
     last_error = ""
 
+    with Session(engine) as session:
+        save_recording_to_db(session, station, start_time, output_path, "recording")
+
     try:
         while datetime.now(tz) < hour_end:
             remaining = int((hour_end - datetime.now(tz)).total_seconds())
@@ -280,6 +343,8 @@ def record_station(station: dict, start_time: datetime | None = None) -> Recordi
             if segment_path.exists() and segment_path.stat().st_size > 0:
                 segments.append(segment_path)
                 segment_idx += 1
+                with Session(engine) as session:
+                    save_recording_to_db(session, station, start_time, output_path, "recording")
 
             if success:
                 break

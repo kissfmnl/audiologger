@@ -19,9 +19,17 @@
         <nav class="p-2 max-h-[calc(100vh-14rem)] overflow-y-auto">
             {% for s in stations %}
             <a href="/station/{{ s.id }}?date={{ selected_date }}{% if selected_country != 'ALL' %}&country={{ selected_country }}{% endif %}"
-               class="block px-3 py-2.5 rounded-xl text-sm font-medium transition truncate mb-0.5
+               class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition mb-0.5 min-w-0
                       {% if s.id == station.id %}bg-purple-600 text-white shadow-sm{% else %}text-body hover:bg-gray-100{% endif %}">
-                {{ s.name }}
+                {% if s.logo_url %}
+                <img src="{{ s.logo_url }}" alt=""
+                     class="station-logo w-7 h-7 rounded-lg object-cover border shrink-0
+                            {% if s.id == station.id %}border-white/30 bg-white/10{% else %}border-gray-200 bg-gray-100{% endif %}"
+                     draggable="false" oncontextmenu="return false">
+                {% else %}
+                <span class="w-7 h-7 flex items-center justify-center text-base shrink-0">{{ s.flag }}</span>
+                {% endif %}
+                <span class="truncate">{{ s.name }}</span>
             </a>
             {% else %}
             <p class="px-3 py-4 text-sm text-muted">Geen zenders voor dit filter</p>

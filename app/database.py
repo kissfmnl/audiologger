@@ -1,6 +1,7 @@
 import logging
 import os
 import shutil
+from datetime import date, datetime
 from pathlib import Path
 
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -149,6 +150,19 @@ def get_recording_by_id(session: Session, recording_id: int) -> Recording | None
     return session.get(Recording, recording_id)
 
 
+def get_recording_for_hour(
+    session: Session,
+    station_id: str,
+    start_time: datetime,
+) -> Recording | None:
+    return session.exec(
+        select(Recording).where(
+            Recording.station_id == station_id,
+            Recording.start_time == start_time,
+        )
+    ).first()
+
+
 def get_recordings(
     session: Session,
     station_id: str | None = None,
@@ -162,9 +176,8 @@ def get_recordings(
     recordings = list(session.exec(statement).all())
 
     if date_filter:
-        recordings = [
-            r for r in recordings if r.start_time.strftime("%Y-%m-%d") == date_filter
-        ]
+        target = date.fromisoformat(date_filter)
+        recordings = [r for r in recordings if r.start_time.date() == target]
 
     return recordings
 

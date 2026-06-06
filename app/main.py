@@ -21,8 +21,10 @@ from app.database import (
     get_session,
     init_db,
 )
+from app.archive_view import build_hour_slots
 from app.convert_recordings import convert_wav_recordings
 from app.editor import trim_recording
+from app.recorder import get_partial_path_for_hour, get_partial_recording_path
 from app.scheduler import setup_scheduler, shutdown_scheduler
 from app.stations import load_stations, get_station_by_id
 from app.admin_auth import get_session_middleware_kwargs
@@ -107,8 +109,7 @@ def build_station_page_context(
     today = station_today(station)
     selected_date = date_filter or today.isoformat()
 
-    recordings = get_recordings(session, station_id=station["id"], date_filter=selected_date)
-    recordings = sorted(recordings, key=lambda r: r.start_time)
+    hour_slots = build_hour_slots(station, selected_date, session)
 
     return {
         "station": station,
@@ -117,7 +118,7 @@ def build_station_page_context(
         "selected_country": selected_country,
         "selected_date": selected_date,
         "date_tabs": build_date_tabs(station),
-        "recordings": recordings,
+        "hour_slots": hour_slots,
     }
 
 
@@ -220,12 +221,19 @@ def player_page(
     if not recording:
         raise HTTPException(status_code=404, detail="Recording not found")
 
-    if recording.status != "completed":
+    if recording.status not in ("completed", "recording"):
         raise HTTPException(status_code=400, detail="Recording is not available for playback")
 
-    file_path = Path(recording.file_path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Recording file not found on disk")
+    if recording.status == "completed":
+        file_path = Path(recording.file_path)
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Recording file not found on disk")
+        audio_url = f"/recordings/{file_path.name}"
+    else:
+        partial = get_partial_recording_path(recording)
+        if not partial:
+            raise HTTPException(status_code=404, detail="Partial recording not available yet")
+        audio_url = f"/recordings/live/{recording.id}"
 
     station = get_station_by_id(recording.station_id)
 
@@ -235,7 +243,8 @@ def player_page(
         {
             "recording": recording,
             "station": station,
-            "audio_url": f"/recordings/{file_path.name}",
+            "audio_url": audio_url,
+            "is_live": recording.status == "recording",
         },
     )
 
@@ -290,6 +299,47 @@ def serve_logo(filename: str):
         raise HTTPException(status_code=404, detail="Logo not found")
 
     return FileResponse(path=file_path, media_type="image/jpeg")
+
+
+@app.get("/recordings/live/{recording_id}")
+def serve_live_recording(recording_id: int, session: Session = Depends(get_session)):
+    recording = get_recording_by_id(session, recording_id)
+    if not recording or recording.status != "recording":
+        raise HTTPException(status_code=404, detail="Live recording not found")
+
+    file_path = get_partial_recording_path(recording)
+    if not file_path or not file_path.exists():
+        raise HTTPException(status_code=404, detail="Partial recording not available yet")
+
+    return FileResponse(
+        path=file_path,
+        media_type="audio/mpeg",
+        filename=file_path.name,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/recordings/live-hour/{station_id}")
+def serve_live_hour(
+    station_id: str,
+    date: str = Query(...),
+    hour: int = Query(..., ge=0, le=23),
+):
+    station = get_station_by_id(station_id)
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+
+    hour_start = datetime.fromisoformat(f"{date}T{hour:02d}:00:00")
+    file_path = get_partial_path_for_hour(station, hour_start)
+    if not file_path or not file_path.exists():
+        raise HTTPException(status_code=404, detail="Partial recording not available yet")
+
+    return FileResponse(
+        path=file_path,
+        media_type="audio/mpeg",
+        filename=file_path.name,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/recordings/{filename}")
