@@ -359,7 +359,7 @@ def station_page(
     request: Request,
     station_id: str,
     path_date: str | None = None,
-    date: str | None = Query(default=None),
+    legacy_date: str | None = Query(default=None, alias="date"),
     country: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
@@ -370,9 +370,9 @@ def station_page(
     today = station_today(station)
     selected_country = country or "ALL"
 
-    if date is not None and path_date is None:
+    if legacy_date is not None and path_date is None:
         try:
-            legacy_day = date.fromisoformat(date)
+            legacy_day = date.fromisoformat(legacy_date)
         except ValueError:
             raise HTTPException(status_code=404, detail="Invalid date")
         url = station_url(station_id, legacy_day, selected_country, today=today)
