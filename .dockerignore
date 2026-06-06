@@ -1,0 +1,11 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.pyo
+.env
+*.db
+recordings/
+logs/
+.pytest_cache
+.cursor
