@@ -1,6 +1,7 @@
 (function () {
     const modal = document.getElementById("player-modal");
     const backdrop = document.getElementById("player-modal-backdrop");
+    const panel = document.getElementById("player-modal-panel");
     const closeBtn = document.getElementById("player-modal-close");
     const titleEl = document.getElementById("player-modal-title");
     const subtitleEl = document.getElementById("player-modal-subtitle");
@@ -16,6 +17,8 @@
     const zoomInBtn = document.getElementById("player-modal-zoom-in");
     const zoomOutBtn = document.getElementById("player-modal-zoom-out");
     const zoomResetBtn = document.getElementById("player-modal-zoom-reset");
+    const panWrap = document.getElementById("player-modal-pan-wrap");
+    const panSlider = document.getElementById("player-modal-pan");
 
     if (!modal || !canvas) {
         return;
@@ -26,7 +29,7 @@
     const peaksInflight = new Map();
     const MIN_ZOOM = 1;
     const MAX_ZOOM = 48;
-    const PAN_THRESHOLD_PX = 6;
+    const PAN_STEPS = 1000;
 
     const bootstrapEl = document.getElementById("peaks-bootstrap");
     if (bootstrapEl) {
@@ -51,9 +54,7 @@
     let peaksUrl = "";
     let zoom = MIN_ZOOM;
     let viewStart = 0;
-    let pointerStartX = 0;
-    let pointerStartView = 0;
-    let isPanning = false;
+    let lastFocusInView = 0.5;
 
     function formatTime(seconds) {
         const total = Math.max(0, Math.floor(seconds || 0));
@@ -75,13 +76,45 @@
         return Math.min(Math.max(0, start), Math.max(0, 1 - span));
     }
 
-    function resetZoom() {
-        zoom = MIN_ZOOM;
-        viewStart = 0;
+    function updateZoomLabel() {
+        if (zoomResetBtn) {
+            zoomResetBtn.textContent = zoom === MIN_ZOOM ? "1×" : `${zoom}×`;
+        }
+    }
+
+    function updatePanSlider() {
+        if (!panWrap || !panSlider) {
+            return;
+        }
+        const span = getViewSpan();
+        if (zoom <= MIN_ZOOM) {
+            panWrap.classList.add("hidden");
+            return;
+        }
+        panWrap.classList.remove("hidden");
+        const maxStart = Math.max(0, 1 - span);
+        if (maxStart <= 0) {
+            panSlider.value = "0";
+            return;
+        }
+        panSlider.value = String(Math.round((viewStart / maxStart) * PAN_STEPS));
+    }
+
+    function setViewStart(start) {
+        viewStart = clampViewStart(start);
+        updatePanSlider();
         drawWaveform();
     }
 
-    function zoomAt(factor, focusInView = 0.5) {
+    function resetZoom() {
+        zoom = MIN_ZOOM;
+        viewStart = 0;
+        updateZoomLabel();
+        updatePanSlider();
+        drawWaveform();
+    }
+
+    function zoomAt(factor, focusInView) {
         const oldSpan = getViewSpan();
         const focusPoint = viewStart + focusInView * oldSpan;
         zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
@@ -91,15 +124,17 @@
             const newSpan = getViewSpan();
             viewStart = clampViewStart(focusPoint - focusInView * newSpan);
         }
+        updateZoomLabel();
+        updatePanSlider();
         drawWaveform();
     }
 
-    function zoomIn(focusInView = 0.5) {
-        zoomAt(2, focusInView);
+    function zoomIn(focusInView) {
+        zoomAt(2, focusInView ?? lastFocusInView);
     }
 
-    function zoomOut(focusInView = 0.5) {
-        zoomAt(0.5, focusInView);
+    function zoomOut(focusInView) {
+        zoomAt(0.5, focusInView ?? lastFocusInView);
     }
 
     function resizeCanvas() {
@@ -119,41 +154,83 @@
         return ((ratio - viewStart) / span) * canvas.width;
     }
 
+    function getVisiblePeaks(width) {
+        if (!peaks.length) {
+            return [];
+        }
+        const span = getViewSpan();
+        const startIdx = viewStart * peaks.length;
+        const endIdx = (viewStart + span) * peaks.length;
+        const samples = new Array(width).fill(0);
+
+        for (let x = 0; x < width; x += 1) {
+            const sliceStart = startIdx + (x / width) * (endIdx - startIdx);
+            const sliceEnd = startIdx + ((x + 1) / width) * (endIdx - startIdx);
+            const iStart = Math.floor(sliceStart);
+            const iEnd = Math.max(iStart + 1, Math.ceil(sliceEnd));
+            let max = 0;
+            for (let i = iStart; i < iEnd && i < peaks.length; i += 1) {
+                if (i >= 0) {
+                    max = Math.max(max, peaks[i]);
+                }
+            }
+            samples[x] = max;
+        }
+        return samples;
+    }
+
+    function drawFilledWave(samples, width, height, mid, color, clipEndX) {
+        if (!samples.length) {
+            return;
+        }
+
+        ctx.save();
+        if (clipEndX !== null) {
+            ctx.beginPath();
+            ctx.rect(0, 0, clipEndX, height);
+            ctx.clip();
+        }
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(0, mid);
+        for (let x = 0; x < width; x += 1) {
+            const amplitude = samples[x] * mid * 0.92;
+            ctx.lineTo(x, mid - amplitude);
+        }
+        for (let x = width - 1; x >= 0; x -= 1) {
+            const amplitude = samples[x] * mid * 0.92;
+            ctx.lineTo(x, mid + amplitude);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
+
     function drawWaveform() {
         const width = canvas.width;
         const height = canvas.height;
+        const mid = height / 2;
         ctx.clearRect(0, 0, width, height);
 
         if (!peaks.length) {
             ctx.fillStyle = "#E5E7EB";
-            const mid = height / 2;
             ctx.fillRect(0, mid - 1, width, 2);
             return;
         }
 
-        const span = getViewSpan();
-        const startIdx = Math.max(0, Math.floor(viewStart * peaks.length));
-        const endIdx = Math.min(peaks.length, Math.ceil((viewStart + span) * peaks.length));
-        const visibleCount = Math.max(1, endIdx - startIdx);
-        const barWidth = width / visibleCount;
-        const mid = height / 2;
+        const samples = getVisiblePeaks(width);
         const progress = timeToRatio(audio ? audio.currentTime : 0);
+        const playheadX = ratioToCanvasX(progress);
 
-        for (let index = startIdx; index < endIdx; index += 1) {
-            const value = peaks[index];
-            const barHeight = Math.max(2, value * height * 0.88);
-            const localIndex = index - startIdx;
-            const x = localIndex * barWidth;
-            const peakRatio = index / peaks.length;
-            const played = peakRatio < progress;
-            ctx.fillStyle = played ? "#7C3AED" : "#D1D5DB";
-            ctx.fillRect(x, mid - barHeight / 2, Math.max(1, barWidth - 0.25), barHeight);
+        drawFilledWave(samples, width, height, mid, "#D1D5DB", null);
+        if (playheadX > 0) {
+            drawFilledWave(samples, width, height, mid, "#7C3AED", playheadX);
         }
 
-        const playheadX = ratioToCanvasX(progress);
         if (playheadX >= 0 && playheadX <= width) {
             ctx.fillStyle = "#6D28D9";
-            ctx.fillRect(playheadX - 1, 0, 2, height);
+            ctx.fillRect(Math.max(0, playheadX - 1), 0, 2, height);
         }
     }
 
@@ -172,8 +249,8 @@
                 if (zoom > MIN_ZOOM) {
                     const progress = timeToRatio(audio.currentTime);
                     const span = getViewSpan();
-                    if (progress < viewStart + span * 0.1 || progress > viewStart + span * 0.9) {
-                        viewStart = clampViewStart(progress - span / 2);
+                    if (progress < viewStart + span * 0.08 || progress > viewStart + span * 0.92) {
+                        setViewStart(progress - span / 2);
                     }
                 }
             }
@@ -410,18 +487,32 @@
     });
 
     if (zoomInBtn) {
-        zoomInBtn.addEventListener("click", () => zoomIn(0.5));
+        zoomInBtn.addEventListener("click", () => zoomIn(lastFocusInView));
     }
     if (zoomOutBtn) {
-        zoomOutBtn.addEventListener("click", () => zoomOut(0.5));
+        zoomOutBtn.addEventListener("click", () => zoomOut(lastFocusInView));
     }
     if (zoomResetBtn) {
         zoomResetBtn.addEventListener("click", resetZoom);
     }
 
+    if (panSlider) {
+        panSlider.addEventListener("input", () => {
+            const span = getViewSpan();
+            const maxStart = Math.max(0, 1 - span);
+            const ratio = Number(panSlider.value) / PAN_STEPS;
+            setViewStart(maxStart * ratio);
+        });
+    }
+
+    canvas.addEventListener("mousemove", (event) => {
+        lastFocusInView = pointerToFocusRatio(event);
+    });
+
     canvas.addEventListener("wheel", (event) => {
         event.preventDefault();
         const focus = pointerToFocusRatio(event);
+        lastFocusInView = focus;
         if (event.deltaY < 0) {
             zoomIn(focus);
         } else {
@@ -429,52 +520,23 @@
         }
     }, { passive: false });
 
-    canvas.addEventListener("pointerdown", (event) => {
-        if (event.button !== 0) {
-            return;
-        }
-        isPanning = false;
-        pointerStartX = event.clientX;
-        pointerStartView = viewStart;
-        canvas.setPointerCapture(event.pointerId);
-
-        const onMove = (moveEvent) => {
-            const deltaPx = moveEvent.clientX - pointerStartX;
-            if (!isPanning && Math.abs(deltaPx) > PAN_THRESHOLD_PX) {
-                isPanning = true;
-            }
-            if (isPanning && zoom > MIN_ZOOM) {
-                const rect = canvas.getBoundingClientRect();
-                const deltaRatio = (-deltaPx / rect.width) * getViewSpan();
-                viewStart = clampViewStart(pointerStartView + deltaRatio);
-                drawWaveform();
-            } else if (!isPanning) {
-                seekFromPointer(moveEvent);
-            }
-        };
-
-        const onUp = (upEvent) => {
-            canvas.releasePointerCapture(upEvent.pointerId);
-            canvas.removeEventListener("pointermove", onMove);
-            canvas.removeEventListener("pointerup", onUp);
-            canvas.removeEventListener("pointercancel", onUp);
-            if (!isPanning) {
-                seekFromPointer(upEvent);
-            }
-        };
-
-        canvas.addEventListener("pointermove", onMove);
-        canvas.addEventListener("pointerup", onUp);
-        canvas.addEventListener("pointercancel", onUp);
-    });
+    canvas.addEventListener("click", seekFromPointer);
 
     closeBtn.addEventListener("click", closeModal);
-    backdrop.addEventListener("click", closeModal);
+
+    modal.addEventListener("click", (event) => {
+        if (panel && panel.contains(event.target)) {
+            return;
+        }
+        closeModal();
+    });
+
     window.addEventListener("resize", () => {
         if (!modal.classList.contains("hidden")) {
             resizeCanvas();
         }
     });
+
     document.addEventListener("keydown", (event) => {
         if (modal.classList.contains("hidden")) {
             return;
@@ -482,9 +544,9 @@
         if (event.key === "Escape") {
             closeModal();
         } else if (event.key === "+" || event.key === "=") {
-            zoomIn(0.5);
+            zoomIn(lastFocusInView);
         } else if (event.key === "-") {
-            zoomOut(0.5);
+            zoomOut(lastFocusInView);
         } else if (event.key === "0") {
             resetZoom();
         }
