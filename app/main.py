@@ -27,7 +27,6 @@ from app.editor import trim_recording
 from app.peaks import (
     ensure_peaks_async,
     estimate_duration,
-    peaks_cache_exists,
     read_peaks_fast,
     warm_missing_peaks,
 )
@@ -165,16 +164,19 @@ def _build_peaks_bootstrap(
             continue
 
         audio_path = _audio_path_for_slot(station, selected_date, slot)
-        bootstrap[slot["peaks_url"]] = {
+        entry = {
             "duration": _slot_duration(slot, audio_path),
             "ready": True,
-            "precise": peaks_cache_exists(audio_path) if audio_path else False,
+            "precise": bool(slot.get("wire_peaks")),
             "audio_url": slot["audio_url"],
             "peaks_url": slot["peaks_url"],
             "is_live": slot["status"] == "recording",
             "title": f"{station['name']} · {slot['label']}",
             "recording_id": slot.get("recording_id"),
         }
+        if slot.get("wire_peaks"):
+            entry["peaks"] = slot["wire_peaks"]
+        bootstrap[slot["peaks_url"]] = entry
     return bootstrap
 
 

@@ -62,7 +62,8 @@
                                 data-peaks-url="{{ slot.peaks_url }}"
                                 data-audio-url="{{ slot.audio_url }}"
                                 data-duration="{{ slot.duration_seconds }}"
-                                data-title="{{ station.name }} · {{ slot.label }}">
+                                data-title="{{ station.name }} · {{ slot.label }}"
+                                {% if slot.wire_peaks %}data-peaks="{{ slot.wire_peaks | join(',') }}"{% endif %}>
                             Luister
                         </button>
                         <a href="{{ slot.download_url }}"
@@ -159,5 +160,5 @@
 
 {% block scripts %}
 <script id="peaks-bootstrap" type="application/json">{{ peaks_bootstrap | tojson }}</script>
-<script src="/static/player-modal.js"></script>
+<script src="/static/player-modal.js?v=3"></script>
 {% endblock %}

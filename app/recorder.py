@@ -1,6 +1,7 @@
 import logging
 import shutil
 import subprocess
+import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -9,7 +10,7 @@ from zoneinfo import ZoneInfo
 from sqlmodel import Session, select
 
 from app.database import LOGS_DIR, RECORDINGS_DIR, engine
-from app.peaks import ensure_peaks, ensure_peaks_async
+from app.peaks import ensure_peaks
 from app.models import Recording
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,8 @@ logger = logging.getLogger(__name__)
 RECORDING_DURATION_SECONDS = 3600
 MP3_BITRATE = "128k"
 RECORDING_USER_AGENT = "Mozilla/5.0 (compatible; AudioLogger/1.0)"
+MAX_CONCURRENT_RECORDINGS = 2
+_recording_slots = threading.BoundedSemaphore(MAX_CONCURRENT_RECORDINGS)
 
 
 def sanitize_name(name: str) -> str:
@@ -311,6 +314,19 @@ def record_station(station: dict, start_time: datetime | None = None) -> Recordi
                 )
             ).one()
 
+    logger.info(
+        "Waiting for recording slot (%s at %s)",
+        station["id"],
+        start_time.strftime("%Y-%m-%d %H:%M"),
+    )
+    _recording_slots.acquire()
+    try:
+        return _record_station_locked(station, start_time, tz)
+    finally:
+        _recording_slots.release()
+
+
+def _record_station_locked(station: dict, start_time: datetime, tz: ZoneInfo) -> Recording:
     hour_start = start_time.replace(tzinfo=tz)
     hour_end = hour_start + timedelta(hours=1)
 
@@ -380,7 +396,7 @@ def record_station(station: dict, start_time: datetime | None = None) -> Recordi
                 f"Recording failed for {station['id']} at {start_time.isoformat()}: {last_error}"
             )
 
-        ensure_peaks_async(output_path)
+        ensure_peaks(output_path)
         return recording
     finally:
         shutil.rmtree(parts_dir, ignore_errors=True)

@@ -35,12 +35,13 @@
         try {
             const bootstrap = JSON.parse(bootstrapEl.textContent || "{}");
             Object.entries(bootstrap).forEach(([url, data]) => {
-                peaksCache.set(url, data);
+                peaksCache.set(url, { ...(peaksCache.get(url) || {}), ...data });
             });
         } catch {
             // ignore invalid bootstrap JSON
         }
     }
+    seedPeaksCacheFromButtons();
 
     let audio = null;
     let activeButton = null;
@@ -53,6 +54,32 @@
     let viewStart = 0;
     let lastFocusInView = 0.5;
     let syncingZoomSlider = false;
+
+    function parseInlinePeaks(raw) {
+        if (!raw) {
+            return null;
+        }
+        const peaks = raw.split(",").map((value) => Number(value.trim())).filter((value) => Number.isFinite(value));
+        return peaks.length ? peaks : null;
+    }
+
+    function seedPeaksCacheFromButtons() {
+        document.querySelectorAll(".listen-btn").forEach((button) => {
+            const url = button.dataset.peaksUrl;
+            const inlinePeaks = parseInlinePeaks(button.dataset.peaks);
+            if (!url || !inlinePeaks) {
+                return;
+            }
+            peaksCache.set(url, {
+                peaks: inlinePeaks,
+                duration: Number(button.dataset.duration) || 3600,
+                precise: true,
+                ready: true,
+                audio_url: button.dataset.audioUrl,
+                title: button.dataset.title,
+            });
+        });
+    }
 
     function generatePlaceholderPeaks(bars = PLACEHOLDER_BARS) {
         const peaks = [];
@@ -445,9 +472,16 @@
         trimLink.classList.add("hidden");
         setPlayingState(false);
 
+        const inlinePeaks = parseInlinePeaks(button.dataset.peaks);
         const cachedMeta = peaksCache.get(url) || {};
+        if (inlinePeaks?.length) {
+            cachedMeta.peaks = inlinePeaks;
+            cachedMeta.precise = true;
+            cachedMeta.duration = buttonDuration;
+            peaksCache.set(url, cachedMeta);
+        }
         const instantData = buildInstantPeakData(buttonDuration, cachedMeta);
-        loadPlayerData(instantData, fallbackTitle, { allowUpgrade: false });
+        loadPlayerData(instantData, fallbackTitle, { allowUpgrade: !instantData.precise });
 
         audio = new Audio(audioUrl);
         audio.preload = "metadata";
@@ -465,23 +499,24 @@
         resizeCanvas();
         startAnimation();
 
-        if (cachedMeta.precise && cachedMeta.peaks?.length) {
+        if (instantData.precise && instantData.peaks?.length) {
             if (activeButton) {
                 activeButton.disabled = false;
             }
             return;
         }
 
-        try {
-            const data = await fetchPeaks(url);
-            loadPlayerData({ ...cachedMeta, ...data }, fallbackTitle);
-        } catch (error) {
-            subtitleEl.textContent = error.message || "Wavevorm kon niet worden verfijnd";
-        } finally {
-            if (activeButton) {
-                activeButton.disabled = false;
-            }
-        }
+        fetchPeaks(url)
+            .then((data) => loadPlayerData({ ...cachedMeta, ...data }, fallbackTitle))
+            .catch((error) => {
+                subtitleEl.textContent = error.message || "Wavevorm kon niet worden verfijnd";
+            })
+            .finally(() => {
+                if (activeButton) {
+                    activeButton.disabled = false;
+                }
+            });
+        return;
     }
 
     document.querySelectorAll(".listen-btn").forEach((button) => {

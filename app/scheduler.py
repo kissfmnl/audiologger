@@ -5,8 +5,11 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
+from sqlmodel import Session, select
 
-from app.recorder import has_completed_recording, record_station
+from app.database import engine
+from app.models import Recording
+from app.recorder import get_partial_path_for_hour, has_completed_recording, record_station
 from app.retention import cleanup_expired_recordings
 from app.stations import get_station_by_id, load_stations, recording_start_time, should_record_station
 
@@ -14,7 +17,46 @@ logger = logging.getLogger(__name__)
 scheduler = BackgroundScheduler()
 
 
-def scheduled_record(station_id: str) -> None:
+RETRY_DELAYS_SECONDS = (90, 180, 300)
+
+
+def _schedule_recording_retry(station: dict, start_time: datetime, attempt: int) -> None:
+    if attempt >= len(RETRY_DELAYS_SECONDS):
+        return
+
+    tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
+    now = datetime.now(tz)
+    hour_end = start_time.replace(tzinfo=tz) + timedelta(hours=1)
+    if now >= hour_end + timedelta(minutes=15):
+        return
+
+    run_at = now + timedelta(seconds=RETRY_DELAYS_SECONDS[attempt])
+    job_id = f"retry_{station['id']}_{start_time.strftime('%Y%m%d%H')}"
+    scheduler.add_job(
+        scheduled_record,
+        trigger=DateTrigger(run_date=run_at),
+        args=[station["id"]],
+        kwargs={
+            "force_start_time": start_time.isoformat(),
+            "attempt": attempt + 1,
+        },
+        id=job_id,
+        replace_existing=True,
+    )
+    logger.info(
+        "Retry %s for %s at %s scheduled in %ss",
+        attempt + 1,
+        station["id"],
+        start_time.strftime("%Y-%m-%d %H:%M"),
+        RETRY_DELAYS_SECONDS[attempt],
+    )
+
+
+def scheduled_record(
+    station_id: str,
+    force_start_time: str | None = None,
+    attempt: int = 0,
+) -> None:
     station = get_station_by_id(station_id)
     if not station:
         logger.warning("Station %s not found, skipping recording", station_id)
@@ -24,7 +66,10 @@ def scheduled_record(station_id: str) -> None:
         logger.info("Skipped recording for %s (outside schedule/event window)", station_id)
         return
 
-    start_time = recording_start_time(station)
+    if force_start_time:
+        start_time = datetime.fromisoformat(force_start_time)
+    else:
+        start_time = recording_start_time(station)
 
     if has_completed_recording(station_id, start_time):
         logger.info("Hour already recorded for %s at %s", station_id, start_time)
@@ -40,6 +85,8 @@ def scheduled_record(station_id: str) -> None:
         )
     except Exception as exc:
         logger.warning("Recording failed for %s: %s", station_id, exc)
+        if not has_completed_recording(station_id, start_time):
+            _schedule_recording_retry(station, start_time, attempt)
 
 
 def next_whole_hour(station: dict, moment: datetime | None = None) -> datetime:
@@ -104,13 +151,14 @@ def reload_scheduler() -> BackgroundScheduler:
             logger.error("Invalid timezone for %s: %s", station["id"], tz_name)
             tz = ZoneInfo("Europe/Amsterdam")
 
+        stagger = abs(hash(station["id"])) % 45
         scheduler.add_job(
             scheduled_record,
-            trigger=CronTrigger(minute=0, hour="*", timezone=tz),
+            trigger=CronTrigger(minute=0, second=stagger, timezone=tz),
             args=[station["id"]],
             id=f"record_{station['id']}",
             replace_existing=True,
-            misfire_grace_time=300,
+            misfire_grace_time=600,
             max_instances=1,
             coalesce=True,
         )
@@ -131,8 +179,55 @@ def reload_scheduler() -> BackgroundScheduler:
     return scheduler
 
 
+def retry_todays_failed_recordings() -> None:
+    if not scheduler.running:
+        return
+
+    stations_by_id = {station["id"]: station for station in load_stations(active_only=True)}
+    with Session(engine) as session:
+        failed = session.exec(select(Recording).where(Recording.status == "failed")).all()
+
+    for recording in failed:
+        station = stations_by_id.get(recording.station_id)
+        if not station:
+            continue
+        if has_completed_recording(recording.station_id, recording.start_time):
+            continue
+
+        tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
+        now = datetime.now(tz)
+        if recording.start_time.date() != now.date():
+            continue
+
+        hour_end = recording.start_time.replace(tzinfo=tz) + timedelta(hours=1)
+        has_partial = get_partial_path_for_hour(station, recording.start_time) is not None
+        if now >= hour_end + timedelta(minutes=15) and not has_partial:
+            continue
+
+        run_at = now + timedelta(seconds=45 + abs(hash(recording.station_id)) % 180)
+        job_id = f"retry_startup_{recording.station_id}_{recording.start_time.strftime('%Y%m%d%H')}"
+        scheduler.add_job(
+            scheduled_record,
+            trigger=DateTrigger(run_date=run_at),
+            args=[recording.station_id],
+            kwargs={
+                "force_start_time": recording.start_time.isoformat(),
+                "attempt": 0,
+            },
+            id=job_id,
+            replace_existing=True,
+        )
+        logger.info(
+            "Queued retry for failed %s hour %s at %s",
+            recording.station_id,
+            recording.start_time.strftime("%H:%M"),
+            run_at.strftime("%H:%M:%S"),
+        )
+
+
 def setup_scheduler() -> BackgroundScheduler:
     scheduler_result = reload_scheduler()
+    retry_todays_failed_recordings()
     cleanup_expired_recordings()
     return scheduler_result
 

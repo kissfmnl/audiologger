@@ -11,8 +11,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BARS = 1000
+DEFAULT_BARS = 512
 WIRE_BARS = 512
+EMBED_BARS = 256
 BYTES_PER_SECOND_128K = 16000
 _response_cache: dict[str, tuple[int, int, dict]] = {}
 _response_cache_lock = threading.Lock()
@@ -146,7 +147,7 @@ def _decode_peaks_audiowaveform(path: Path, bars: int) -> tuple[list[float], flo
     if not shutil.which("audiowaveform"):
         return [], 0.0
 
-    duration = max(get_audio_duration(path), 1.0)
+    duration = max(estimate_duration(path), 1.0)
     pixels_per_second = max(0.15, bars / duration)
 
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
@@ -193,7 +194,7 @@ def _decode_peaks_audiowaveform(path: Path, bars: int) -> tuple[list[float], flo
 
 
 def _decode_peaks_ffmpeg(path: Path, bars: int) -> tuple[list[float], float]:
-    duration = max(get_audio_duration(path), 1.0)
+    duration = max(estimate_duration(path), 1.0)
     sample_rate = 80
     samples_per_bar = max(1, int(duration * sample_rate / bars))
 
@@ -287,7 +288,7 @@ def load_cached_peaks(path: Path) -> tuple[list[float], float] | None:
             return None
         if int(cache.get("source_size", -1)) != int(path.stat().st_size):
             return None
-        peaks = cache.get("peaks", [])
+        peaks = cache.get("wire_peaks") or cache.get("peaks", [])
         duration = float(cache.get("duration", 3600))
         if peaks:
             return peaks, duration
@@ -296,15 +297,26 @@ def load_cached_peaks(path: Path) -> tuple[list[float], float] | None:
     return None
 
 
+def read_embed_peaks(path: Path | None) -> list[float] | None:
+    if not path:
+        return None
+    cached = load_cached_peaks(path)
+    if not cached:
+        return None
+    return downsample_peaks(cached[0], EMBED_BARS)
+
+
 def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> None:
     cache_path = peaks_cache_path(path)
     try:
         stat = path.stat()
+        wire_peaks = downsample_peaks(peaks, EMBED_BARS)
         cache_path.write_text(
             json.dumps(
                 {
                     "duration": duration,
                     "peaks": peaks,
+                    "wire_peaks": wire_peaks,
                     "source_mtime": int(stat.st_mtime),
                     "source_size": int(stat.st_size),
                 },
@@ -355,7 +367,7 @@ def ensure_peaks_async(path: Path) -> None:
     threading.Thread(target=ensure_peaks, args=(path,), daemon=True).start()
 
 
-def warm_missing_peaks(recordings_dir: Path, workers: int = 3) -> None:
+def warm_missing_peaks(recordings_dir: Path, workers: int = 1) -> None:
     pending = [
         audio_path
         for audio_path in sorted(recordings_dir.glob("*.mp3"))
