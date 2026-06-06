@@ -1,4 +1,5 @@
 import logging
+import threading
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from app.database import (
     get_station_stats,
     init_db,
 )
+from app.convert_recordings import convert_wav_recordings
 from app.editor import trim_recording
 from app.scheduler import setup_scheduler, shutdown_scheduler
 from app.stations import load_stations, get_station_by_id
@@ -42,10 +44,18 @@ class TrimRequest(BaseModel):
     end_sec: float = Field(gt=0)
 
 
+def _run_recording_conversion() -> None:
+    try:
+        convert_wav_recordings()
+    except Exception:
+        logger.exception("Background recording conversion failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     setup_scheduler()
+    threading.Thread(target=_run_recording_conversion, daemon=True).start()
     logger.info("AudioLogger started")
     yield
     shutdown_scheduler()

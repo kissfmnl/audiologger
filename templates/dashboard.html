@@ -24,21 +24,94 @@
     </div>
 </div>
 
-<div class="mb-6 flex flex-wrap gap-2">
-    <span class="text-sm text-muted self-center mr-2">Filter op land:</span>
-    <a href="/?country=ALL"
-       class="px-4 py-2 rounded-xl text-sm font-medium transition {% if selected_country == 'ALL' %}bg-purple-600 text-white shadow-sm{% else %}bg-surface text-body hover:bg-gray-100 border border-gray-200{% endif %}">
-        Alle
-    </a>
-    {% for c in countries %}
-    <a href="/?country={{ c }}"
-       class="px-4 py-2 rounded-xl text-sm font-medium transition {% if selected_country == c %}bg-purple-600 text-white shadow-sm{% else %}bg-surface text-body hover:bg-gray-100 border border-gray-200{% endif %}">
-        {{ c }}
-    </a>
-    {% endfor %}
+<div class="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div class="flex flex-wrap gap-2">
+        <span class="text-sm text-muted self-center mr-2">Filter op land:</span>
+        <a href="/?country=ALL"
+           class="px-4 py-2 rounded-xl text-sm font-medium transition {% if selected_country == 'ALL' %}bg-purple-600 text-white shadow-sm{% else %}bg-surface text-body hover:bg-gray-100 border border-gray-200{% endif %}">
+            Alle
+        </a>
+        {% for c in countries %}
+        <a href="/?country={{ c }}"
+           class="px-4 py-2 rounded-xl text-sm font-medium transition {% if selected_country == c %}bg-purple-600 text-white shadow-sm{% else %}bg-surface text-body hover:bg-gray-100 border border-gray-200{% endif %}">
+            {{ c }}
+        </a>
+        {% endfor %}
+    </div>
+
+    <div class="flex items-center gap-2 shrink-0">
+        <span class="text-sm text-muted">Weergave:</span>
+        <button type="button" data-dashboard-view="table"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium transition">
+            Tabel
+        </button>
+        <button type="button" data-dashboard-view="cards"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium transition">
+            Kaarten
+        </button>
+    </div>
 </div>
 
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+{% if stations %}
+<div id="stations-table-view" class="bg-surface rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+    <div class="hidden md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_4rem_5rem_5.5rem_5rem] gap-3 px-4 py-2.5 bg-gray-50/80 border-b border-gray-100 text-[11px] font-semibold uppercase tracking-wide text-muted">
+        <span>Zender</span>
+        <span>Laatste opname</span>
+        <span class="text-right">Aantal</span>
+        <span class="text-right">Opslag</span>
+        <span>Status</span>
+        <span></span>
+    </div>
+
+    <div class="divide-y divide-gray-100">
+        {% for station in stations %}
+        <div class="px-4 py-2.5 hover:bg-gray-50/60 transition">
+            <div class="flex flex-col gap-3 md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_4rem_5rem_5.5rem_5rem] md:items-center md:gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                    {% if station.logo_url %}
+                    <img src="{{ station.logo_url }}" alt="{{ station.name }}"
+                         class="station-logo w-9 h-9 rounded-lg object-cover border border-gray-200 bg-gray-100 shrink-0"
+                         draggable="false" oncontextmenu="return false">
+                    {% else %}
+                    <span class="text-2xl shrink-0 w-9 h-9 flex items-center justify-center">{{ station.flag }}</span>
+                    {% endif %}
+                    <div class="min-w-0">
+                        <p class="font-semibold text-heading text-sm truncate">{{ station.name }}</p>
+                        <p class="text-xs text-muted truncate">{{ station.country_name | default(station.country) }}</p>
+                    </div>
+                </div>
+
+                <div class="md:contents">
+                    <p class="text-sm text-heading md:text-right md:text-left">
+                        <span class="md:hidden text-muted text-xs mr-2">Laatste:</span>{{ station.last_recording_date }}
+                    </p>
+                    <p class="text-sm text-heading md:text-right">
+                        <span class="md:hidden text-muted text-xs mr-2">Aantal:</span>{{ station.total_recordings }}
+                    </p>
+                    <p class="text-sm text-heading md:text-right">
+                        <span class="md:hidden text-muted text-xs mr-2">Opslag:</span>{{ station.total_storage_mb }} MB
+                    </p>
+                </div>
+
+                <div class="flex items-center justify-between md:contents gap-3">
+                    {% if station.active %}
+                    <span class="px-2 py-0.5 text-[11px] font-medium rounded-md bg-purple-100 text-purple-700 w-fit">Actief</span>
+                    {% else %}
+                    <span class="px-2 py-0.5 text-[11px] font-medium rounded-md bg-red-50 text-red-600 w-fit">Inactief</span>
+                    {% endif %}
+
+                    <a href="/station/{{ station.id }}"
+                       class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-100 text-purple-700 hover:bg-purple-600 hover:text-white transition md:justify-self-end">
+                        Bekijk
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div id="stations-cards-view" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
     {% for station in stations %}
     <div class="bg-surface rounded-2xl shadow-card border border-gray-100 overflow-hidden hover:border-purple-200 transition group">
         <div class="p-6">
@@ -86,10 +159,15 @@
             </a>
         </div>
     </div>
-    {% else %}
-    <div class="col-span-full text-center py-16 text-muted bg-surface rounded-2xl border border-gray-100">
-        <p>Geen zenders gevonden voor dit filter.</p>
-    </div>
     {% endfor %}
 </div>
+{% else %}
+<div class="text-center py-16 text-muted bg-surface rounded-2xl border border-gray-100">
+    <p>Geen zenders gevonden voor dit filter.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/dashboard.js"></script>
 {% endblock %}
