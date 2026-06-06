@@ -31,3 +31,4 @@ class Recording(SQLModel, table=True):
     file_path: str
     file_size_mb: float
     status: str = Field(default="completed", index=True)
+    peaks_file: Optional[str] = Field(default=None)

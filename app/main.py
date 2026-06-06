@@ -281,6 +281,7 @@ def recording_to_dict(recording) -> dict:
         "filename": filename,
         "file_size_mb": recording.file_size_mb,
         "status": recording.status,
+        "peaks_file": recording.peaks_file,
     }
 
 
@@ -478,6 +479,7 @@ def api_peaks(
 
     peak_data = read_peaks_fast(audio_path, max_wait=wait)
     payload = {
+        "data": peak_data.get("data") or peak_data.get("peaks", []),
         "peaks": peak_data["peaks"],
         "duration": peak_data["duration"],
         "ready": peak_data["ready"],
@@ -515,6 +517,7 @@ def api_peaks_hour(
     peak_data = read_peaks_fast(audio_path, max_wait=wait)
     return JSONResponse(
         content={
+            "data": peak_data.get("data") or peak_data.get("peaks", []),
             "peaks": peak_data["peaks"],
             "duration": peak_data["duration"],
             "ready": peak_data["ready"],

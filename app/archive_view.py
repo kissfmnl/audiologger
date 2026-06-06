@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -51,10 +51,14 @@ def build_hour_slots(
         hour_start = datetime(day.year, day.month, day.day, hour, 0, 0)
         slot_moment = hour_start.replace(tzinfo=tz)
         recording = recordings_by_hour.get(hour)
-        active = is_hour_actively_recording(station, hour_start)
+        active = is_hour_actively_recording(station, hour_start, now)
 
         if recording:
             status = recording.status
+            if status == "recording":
+                hour_end = slot_moment + timedelta(hours=1)
+                if now > hour_end + timedelta(minutes=3) and not active:
+                    status = "failed" if recording.file_size_mb else "missing"
         elif active:
             status = "recording"
             recording = get_recording_for_hour(session, station["id"], hour_start)

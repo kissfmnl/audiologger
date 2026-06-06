@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 
 from app.database import LOGS_DIR, RECORDINGS_DIR, engine
 from app.galio import ensure_galio_async
-from app.peaks import ensure_peaks_async
+from app.peaks import ensure_peaks_async, peaks_cache_path
 from app.models import Recording
 
 logger = logging.getLogger(__name__)
@@ -51,19 +51,42 @@ def partial_size_mb(output_path: Path) -> float:
     return round(total / (1024 * 1024), 2)
 
 
-def is_hour_actively_recording(station: dict, start_time: datetime) -> bool:
-    output_path = build_output_path(station, start_time)
-    parts_dir = output_path.parent / f".{output_path.stem}_parts"
-    if parts_dir.is_dir():
-        for part in parts_dir.glob("part*.mp3"):
-            if part.stat().st_size > 0:
-                return True
+def _hour_window(station: dict, start_time: datetime) -> tuple[datetime, datetime, ZoneInfo]:
+    tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
+    hour_start = start_time.replace(tzinfo=tz) if start_time.tzinfo is None else start_time.astimezone(tz)
+    return hour_start, hour_start + timedelta(hours=1), tz
 
+
+def is_hour_actively_recording(
+    station: dict,
+    start_time: datetime,
+    now: datetime | None = None,
+) -> bool:
+    """True only while ffmpeg is plausibly still capturing this hour (not stale part dirs)."""
+    hour_start, hour_end, tz = _hour_window(station, start_time)
+    if now is None:
+        now = datetime.now(tz)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=tz)
+    else:
+        now = now.astimezone(tz)
+
+    output_path = build_output_path(station, start_time.replace(tzinfo=None))
     log_path = LOGS_DIR / f"{output_path.stem}.log"
-    if log_path.exists() and time.time() - log_path.stat().st_mtime < 120:
-        return True
+    log_recent = log_path.exists() and time.time() - log_path.stat().st_mtime < 90
 
-    return False
+    if now < hour_end + timedelta(minutes=2):
+        if log_recent:
+            return True
+        parts_dir = output_path.parent / f".{output_path.stem}_parts"
+        if parts_dir.is_dir():
+            for part in parts_dir.glob("part*.mp3"):
+                if part.stat().st_size > 0:
+                    return True
+        return False
+
+    # Hour is over — only trust a very fresh log (ffmpeg still finishing concat).
+    return log_recent and now < hour_end + timedelta(minutes=5)
 
 
 def get_partial_path_for_hour(station: dict, start_time: datetime) -> Path | None:
@@ -99,12 +122,6 @@ def get_partial_recording_path(recording: Recording) -> Path | None:
 
 
 MIN_VALID_MP3_BYTES = 100_000
-
-
-def _hour_end(start_time: datetime, tz: ZoneInfo) -> datetime:
-    if start_time.tzinfo is None:
-        return start_time.replace(tzinfo=tz) + timedelta(hours=1)
-    return start_time.astimezone(tz) + timedelta(hours=1)
 
 
 def has_completed_recording(station_id: str, start_time: datetime) -> bool:
@@ -270,6 +287,10 @@ def save_recording_to_db(
         )
     ).first()
 
+    peaks_file = None
+    if status == "completed" and output_path.exists():
+        peaks_file = peaks_cache_path(output_path).name
+
     if existing:
         existing.station_name = station["name"]
         existing.country = station["country"]
@@ -278,6 +299,8 @@ def save_recording_to_db(
         existing.file_path = str(output_path)
         existing.file_size_mb = file_size
         existing.status = status
+        if peaks_file:
+            existing.peaks_file = peaks_file
         session.add(existing)
         session.commit()
         session.refresh(existing)
@@ -293,6 +316,7 @@ def save_recording_to_db(
         file_path=str(output_path),
         file_size_mb=file_size,
         status=status,
+        peaks_file=peaks_file,
     )
     session.add(recording)
     session.commit()
@@ -422,16 +446,11 @@ def finalize_stale_recording(
     if recording.status != "recording":
         return recording
 
-    tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
     start_time = recording.start_time
-    hour_end = _hour_end(start_time, tz)
+    _, hour_end, tz = _hour_window(station, start_time)
     now = datetime.now(tz)
 
-    if now < hour_end + timedelta(seconds=90):
-        if is_hour_actively_recording(station, start_time):
-            return recording
-
-    if is_hour_actively_recording(station, start_time):
+    if is_hour_actively_recording(station, start_time, now):
         return recording
 
     output_path = Path(recording.file_path)

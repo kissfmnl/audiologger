@@ -53,6 +53,7 @@
                                 data-audio-url="{{ slot.audio_url }}"
                                 data-duration="{{ slot.duration_seconds }}"
                                 data-title="{{ station.name }} · {{ slot.label }}"
+                                {% if slot.recording_id %}data-recording-id="{{ slot.recording_id }}"{% endif %}
                                 {% if slot.wire_peaks %}data-peaks="{{ slot.wire_peaks | join(',') }}"{% endif %}>
                             Editor
                         </button>
@@ -101,19 +102,19 @@
                     <div id="player-modal-loading"
                          class="absolute inset-0 flex items-center justify-center bg-gray-50/95 backdrop-blur-sm">
                         <div class="text-center">
-                            <div class="relative w-28 h-28 mx-auto mb-3">
-                                <svg class="w-28 h-28 -rotate-90" viewBox="0 0 120 120">
-                                    <circle cx="60" cy="60" r="52" fill="none" stroke="#E5E7EB" stroke-width="8"/>
-                                    <circle id="player-modal-countdown-ring" cx="60" cy="60" r="52" fill="none"
-                                            stroke="#7C3AED" stroke-width="8" stroke-linecap="round"
-                                            stroke-dasharray="326.7" stroke-dashoffset="0"/>
+                            <div class="relative w-16 h-16 mx-auto mb-2">
+                                <svg class="w-16 h-16 -rotate-90" viewBox="0 0 60 60">
+                                    <circle cx="30" cy="30" r="26" fill="none" stroke="#E5E7EB" stroke-width="5"/>
+                                    <circle id="player-modal-countdown-ring" cx="30" cy="30" r="26" fill="none"
+                                            stroke="#7C3AED" stroke-width="5" stroke-linecap="round"
+                                            stroke-dasharray="163.4" stroke-dashoffset="0"/>
                                 </svg>
                                 <p id="player-modal-countdown"
-                                   class="absolute inset-0 flex items-center justify-center text-3xl font-bold text-purple-600 tabular-nums">
+                                   class="absolute inset-0 flex items-center justify-center text-lg font-semibold text-purple-600 tabular-nums">
                                     3.0
                                 </p>
                             </div>
-                            <p class="text-sm text-muted">Wavevorm laden</p>
+                            <p class="text-xs text-muted">Wavevorm laden</p>
                         </div>
                     </div>
                 </div>
@@ -136,25 +137,52 @@
                     </div>
                 </div>
 
-                <div id="player-modal-controls" class="mt-4 flex flex-wrap items-center gap-4 opacity-40 pointer-events-none">
-                    <button id="player-modal-play" type="button"
-                            class="w-12 h-12 rounded-full bg-purple-600 text-white flex items-center justify-center hover:bg-purple-700 transition shadow-sm">
-                        <svg id="player-modal-play-icon" class="w-5 h-5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M8 5v14l11-7z"/>
-                        </svg>
-                        <svg id="player-modal-pause-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-                        </svg>
-                    </button>
-                    <div class="text-sm font-mono text-heading">
-                        <span id="player-modal-current">0:00</span>
-                        <span class="text-muted"> / </span>
-                        <span id="player-modal-total">0:00</span>
+                <div id="player-modal-controls" class="mt-4 opacity-40 pointer-events-none">
+                    <div class="flex flex-wrap items-center gap-4">
+                        <button id="player-modal-play" type="button"
+                                class="w-12 h-12 rounded-full bg-purple-600 text-white flex items-center justify-center hover:bg-purple-700 transition shadow-sm">
+                            <svg id="player-modal-play-icon" class="w-5 h-5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z"/>
+                            </svg>
+                            <svg id="player-modal-pause-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                            </svg>
+                        </button>
+                        <div class="text-sm font-mono text-heading">
+                            <span id="player-modal-current">0:00</span>
+                            <span class="text-muted"> / </span>
+                            <span id="player-modal-total">0:00</span>
+                        </div>
                     </div>
-                    <a id="player-modal-trim" href="#"
-                       class="hidden ml-auto text-sm font-medium text-purple-600 hover:text-purple-700 transition">
-                        Knippen →
-                    </a>
+
+                    <div id="player-modal-trim-section" class="hidden mt-5 pt-4 border-t border-gray-100">
+                        <p class="text-xs text-muted mb-3">Speel af en zet begin- en eindpunt met de knoppen (spatie = play/pause).</p>
+                        <div class="grid grid-cols-2 gap-3 mb-3">
+                            <div class="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                                <p class="text-[11px] text-muted mb-0.5">Begin</p>
+                                <p id="player-modal-sel-start" class="font-mono text-sm text-purple-600 font-medium">—</p>
+                            </div>
+                            <div class="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                                <p class="text-[11px] text-muted mb-0.5">Einde</p>
+                                <p id="player-modal-sel-end" class="font-mono text-sm text-purple-600 font-medium">—</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button id="player-modal-sel-start-btn" type="button"
+                                    class="px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 transition text-xs font-medium">
+                                Selectie start
+                            </button>
+                            <button id="player-modal-sel-end-btn" type="button"
+                                    class="px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 transition text-xs font-medium">
+                                Selectie einde
+                            </button>
+                            <button id="player-modal-download-btn" type="button" disabled
+                                    class="px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+                                Knip &amp; download
+                            </button>
+                        </div>
+                        <p id="player-modal-trim-status" class="text-xs mt-2 hidden"></p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -164,5 +192,5 @@
 
 {% block scripts %}
 <script id="peaks-bootstrap" type="application/json">{{ peaks_bootstrap | tojson }}</script>
-<script src="/static/player-modal.js?v=5"></script>
+<script src="/static/player-modal.js?v=6"></script>
 {% endblock %}

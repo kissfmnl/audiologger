@@ -4,6 +4,7 @@ import shutil
 from datetime import date, datetime
 from pathlib import Path
 
+from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models import Recording, Station
@@ -108,6 +109,22 @@ def migrate_database_location() -> None:
     logger.info("Migrated database to persistent volume: %s", DATABASE_PATH)
 
 
+def migrate_recording_schema() -> None:
+    columns = {
+        "peaks_file": "TEXT",
+    }
+
+    with engine.connect() as conn:
+        existing = {
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(recording)")).fetchall()
+        }
+        for name, definition in columns.items():
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE recording ADD COLUMN {name} {definition}"))
+        conn.commit()
+
+
 def init_db() -> None:
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -126,6 +143,7 @@ def init_db() -> None:
     )
 
     migrate_station_schema()
+    migrate_recording_schema()
     restored = restore_stations_from_backup_if_needed()
     ensure_stations_backup_exists()
     reconcile_logos()

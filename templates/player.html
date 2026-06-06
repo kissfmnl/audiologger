@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Player — {{ recording.station_name }} — AudioLogger{% endblock %}
+{% block title %}Editor — {{ recording.station_name }} — AudioLogger{% endblock %}
 
 {% block head %}
 <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
@@ -31,10 +31,11 @@
 </div>
 
 <div class="bg-surface rounded-2xl shadow-card border border-gray-100 p-6 mb-6">
-    <div id="waveform" class="mb-4 rounded-xl overflow-hidden bg-gray-50"></div>
+    <p class="text-xs text-muted mb-2">Scroll op wavevorm om te zoomen · dubbelklik = afspelen · spatie = play/pause</p>
+    <div id="waveform" class="mb-4 rounded-xl overflow-hidden bg-gray-50 border border-gray-100"></div>
 
     <div class="flex flex-wrap items-center gap-4 mb-4">
-        <button id="playBtn"
+        <button id="playBtn" type="button"
                 class="w-12 h-12 rounded-full bg-purple-600 text-white flex items-center justify-center hover:bg-purple-700 transition shadow-sm">
             <svg id="playIcon" class="w-5 h-5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M8 5v14l11-7z"/>
@@ -51,8 +52,8 @@
     </div>
 
     <div class="border-t border-gray-100 pt-4">
-        <h3 class="text-sm font-semibold mb-2 text-heading">Selecteer fragment om te knippen</h3>
-        <p class="text-xs text-muted mb-4">Sleep over de waveform om een begin- en eindpunt te selecteren.</p>
+        <h3 class="text-sm font-semibold mb-2 text-heading">Fragment knippen</h3>
+        <p class="text-xs text-muted mb-4">Speel af, druk op <strong>Selectie start</strong>, speel verder, druk op <strong>Selectie einde</strong>. Sleep de selectie nog bij op de wavevorm.</p>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div class="bg-gray-50 rounded-xl p-4 border border-gray-100">
@@ -65,13 +66,21 @@
             </div>
         </div>
 
-        <div class="flex flex-wrap gap-3">
-            <button id="trimBtn" disabled
-                    class="px-5 py-2.5 rounded-xl bg-purple-600 text-white font-medium hover:bg-purple-700 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm">
-                Knip fragment
+        <div class="flex flex-wrap gap-2">
+            <button id="createStartButton" type="button"
+                    class="px-4 py-2 rounded-xl bg-purple-100 text-purple-700 hover:bg-purple-200 transition text-sm font-medium">
+                Selectie start
+            </button>
+            <button id="createEndButton" type="button"
+                    class="px-4 py-2 rounded-xl bg-purple-100 text-purple-700 hover:bg-purple-200 transition text-sm font-medium">
+                Selectie einde
+            </button>
+            <button id="downloadRegionButton" type="button" disabled
+                    class="px-4 py-2 rounded-xl bg-purple-600 text-white hover:bg-purple-700 transition text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed shadow-sm">
+                Knip &amp; download
             </button>
             <a href="{{ audio_url }}" download
-               class="px-5 py-2.5 rounded-xl bg-gray-100 text-body hover:bg-gray-200 transition font-medium">
+               class="px-4 py-2 rounded-xl bg-gray-100 text-body hover:bg-gray-200 transition text-sm font-medium">
                 Download origineel
             </a>
         </div>
@@ -84,122 +93,275 @@
 <script>
     const recordingId = {{ recording.id }};
     const audioUrl = "{{ audio_url }}";
+    const stationName = {{ recording.station_name | tojson }};
+    const SELECTION_DEFAULT_SEC = 10;
+    const REGION_COLOR = "rgba(124, 58, 237, 0.22)";
 
-    function formatTime(seconds) {
-        const m = Math.floor(seconds / 60);
-        const s = Math.floor(seconds % 60);
-        return m + ':' + s.toString().padStart(2, '0');
-    }
-
-    let regionStart = null;
-    let regionEnd = null;
     let activeRegion = null;
+    let zoomLevel = 0;
 
-    const regionsPlugin = WaveSurfer.Regions.create({
-        dragSelection: { slop: 5 },
-    });
+    const regionsPlugin = WaveSurfer.Regions.create();
 
     const wavesurfer = WaveSurfer.create({
-        container: '#waveform',
-        waveColor: '#D1D5DB',
-        progressColor: '#7C3AED',
-        cursorColor: '#6D28D9',
+        container: "#waveform",
+        waveColor: "#C4B5FD",
+        progressColor: "#7C3AED",
+        cursorColor: "#6D28D9",
         barWidth: 2,
         barGap: 1,
         barRadius: 2,
-        height: 128,
-        url: audioUrl,
+        height: 140,
         plugins: [regionsPlugin],
     });
 
-    wavesurfer.on('ready', () => {
-        document.getElementById('totalTime').textContent = formatTime(wavesurfer.getDuration());
+    function formatTime(seconds) {
+        const total = Math.max(0, Math.floor(seconds || 0));
+        const hours = Math.floor(total / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+        const secs = total % 60;
+        if (hours > 0) {
+            return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+        }
+        return `${minutes}:${secs.toString().padStart(2, "0")}`;
+    }
+
+    function formatTimePrecise(seconds) {
+        if (seconds === null || seconds === undefined) {
+            return "—";
+        }
+        const mins = Math.floor(seconds / 60);
+        const secs = (seconds % 60).toFixed(1);
+        return `${mins}:${secs.padStart(4, "0")}`;
+    }
+
+    function syncRegionLabels() {
+        const startEl = document.getElementById("regionStart");
+        const endEl = document.getElementById("regionEnd");
+        const downloadBtn = document.getElementById("downloadRegionButton");
+
+        if (!activeRegion) {
+            startEl.textContent = "—";
+            endEl.textContent = "—";
+            downloadBtn.disabled = true;
+            return;
+        }
+
+        startEl.textContent = formatTimePrecise(activeRegion.start);
+        endEl.textContent = formatTimePrecise(activeRegion.end);
+        downloadBtn.disabled = !(activeRegion.end > activeRegion.start);
+    }
+
+    function resetPlayer() {
+        regionsPlugin.clearRegions();
+        activeRegion = null;
+        syncRegionLabels();
+        if (wavesurfer.getDuration()) {
+            wavesurfer.seekTo(0);
+        }
+        wavesurfer.pause();
+    }
+
+    function setSelectionStart() {
+        const t = wavesurfer.getCurrentTime();
+        const max = wavesurfer.getDuration() || t + SELECTION_DEFAULT_SEC;
+
+        if (activeRegion) {
+            if (t < activeRegion.end) {
+                activeRegion.setOptions({ start: t });
+            } else {
+                activeRegion.setOptions({ start: t, end: Math.min(max, t + SELECTION_DEFAULT_SEC) });
+            }
+        } else {
+            activeRegion = regionsPlugin.addRegion({
+                start: t,
+                end: Math.min(max, t + SELECTION_DEFAULT_SEC),
+                drag: true,
+                resize: true,
+                color: REGION_COLOR,
+            });
+        }
+        syncRegionLabels();
+    }
+
+    function setSelectionEnd() {
+        const t = wavesurfer.getCurrentTime();
+        const max = wavesurfer.getDuration() || t;
+
+        if (activeRegion) {
+            if (activeRegion.start < t) {
+                activeRegion.setOptions({ end: t });
+            } else {
+                activeRegion.setOptions({
+                    start: Math.max(0, t - SELECTION_DEFAULT_SEC),
+                    end: t,
+                });
+            }
+        } else {
+            activeRegion = regionsPlugin.addRegion({
+                start: Math.max(0, t - SELECTION_DEFAULT_SEC),
+                end: t,
+                drag: true,
+                resize: true,
+                color: REGION_COLOR,
+            });
+        }
+        syncRegionLabels();
+    }
+
+    function loadWithPeaks() {
+        resetPlayer();
+        fetch("/api/peaks/" + recordingId + "?wait=3")
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error("Peaks unavailable");
+                }
+                return response.json();
+            })
+            .then((payload) => {
+                const peakData = payload.data?.length ? payload.data : payload.peaks;
+                if (peakData?.length) {
+                    wavesurfer.load(audioUrl, peakData, payload.duration);
+                } else {
+                    wavesurfer.load(audioUrl);
+                }
+            })
+            .catch(() => {
+                wavesurfer.load(audioUrl);
+            });
+    }
+
+    loadWithPeaks();
+
+    wavesurfer.on("ready", () => {
+        document.getElementById("totalTime").textContent = formatTime(wavesurfer.getDuration());
+        zoomLevel = 0;
+        wavesurfer.zoom(1);
     });
 
-    wavesurfer.on('audioprocess', () => {
-        document.getElementById('currentTime').textContent = formatTime(wavesurfer.getCurrentTime());
+    wavesurfer.on("audioprocess", () => {
+        document.getElementById("currentTime").textContent = formatTime(wavesurfer.getCurrentTime());
     });
 
-    wavesurfer.on('seeking', () => {
-        document.getElementById('currentTime').textContent = formatTime(wavesurfer.getCurrentTime());
+    wavesurfer.on("seeking", () => {
+        document.getElementById("currentTime").textContent = formatTime(wavesurfer.getCurrentTime());
     });
 
-    regionsPlugin.on('region-created', (region) => {
-        if (activeRegion) activeRegion.remove();
+    regionsPlugin.on("region-created", (region) => {
+        if (activeRegion && activeRegion !== region) {
+            region.remove();
+            return;
+        }
         activeRegion = region;
-        regionStart = region.start;
-        regionEnd = region.end;
-        document.getElementById('regionStart').textContent = formatTime(regionStart);
-        document.getElementById('regionEnd').textContent = formatTime(regionEnd);
-        document.getElementById('trimBtn').disabled = false;
+        syncRegionLabels();
     });
 
-    regionsPlugin.on('region-updated', (region) => {
-        regionStart = region.start;
-        regionEnd = region.end;
-        document.getElementById('regionStart').textContent = formatTime(regionStart);
-        document.getElementById('regionEnd').textContent = formatTime(regionEnd);
+    regionsPlugin.on("region-updated", (region) => {
+        if (activeRegion === region) {
+            syncRegionLabels();
+        }
     });
 
-    const playBtn = document.getElementById('playBtn');
-    const playIcon = document.getElementById('playIcon');
-    const pauseIcon = document.getElementById('pauseIcon');
-
-    playBtn.addEventListener('click', () => wavesurfer.playPause());
-
-    wavesurfer.on('play', () => {
-        playIcon.classList.add('hidden');
-        pauseIcon.classList.remove('hidden');
+    regionsPlugin.on("region-removed", (region) => {
+        if (activeRegion === region) {
+            activeRegion = null;
+            syncRegionLabels();
+        }
     });
 
-    wavesurfer.on('pause', () => {
-        playIcon.classList.remove('hidden');
-        pauseIcon.classList.add('hidden');
+    const playBtn = document.getElementById("playBtn");
+    const playIcon = document.getElementById("playIcon");
+    const pauseIcon = document.getElementById("pauseIcon");
+
+    playBtn.addEventListener("click", () => wavesurfer.playPause());
+
+    wavesurfer.on("play", () => {
+        playIcon.classList.add("hidden");
+        pauseIcon.classList.remove("hidden");
     });
 
-    document.getElementById('trimBtn').addEventListener('click', async () => {
-        if (regionStart === null || regionEnd === null) return;
+    wavesurfer.on("pause", () => {
+        playIcon.classList.remove("hidden");
+        pauseIcon.classList.add("hidden");
+    });
 
-        const statusEl = document.getElementById('trimStatus');
-        const trimBtn = document.getElementById('trimBtn');
-        trimBtn.disabled = true;
-        statusEl.classList.remove('hidden');
-        statusEl.textContent = 'Bezig met knippen...';
-        statusEl.className = 'text-sm mt-3 text-muted';
+    document.getElementById("createStartButton").addEventListener("click", setSelectionStart);
+    document.getElementById("createEndButton").addEventListener("click", setSelectionEnd);
+
+    document.getElementById("downloadRegionButton").addEventListener("click", async () => {
+        if (!activeRegion) {
+            return;
+        }
+
+        const startSec = Math.round(10 * activeRegion.start) / 10;
+        const endSec = Math.round(10 * activeRegion.end) / 10;
+        if (endSec <= startSec) {
+            return;
+        }
+
+        const statusEl = document.getElementById("trimStatus");
+        const downloadBtn = document.getElementById("downloadRegionButton");
+        downloadBtn.disabled = true;
+        statusEl.classList.remove("hidden");
+        statusEl.textContent = "Bezig met knippen…";
+        statusEl.className = "text-sm mt-3 text-muted";
 
         try {
-            const response = await fetch('/api/trim', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            const response = await fetch("/api/trim", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     recording_id: recordingId,
-                    start_sec: regionStart,
-                    end_sec: regionEnd,
+                    start_sec: startSec,
+                    end_sec: endSec,
                 }),
             });
 
             if (!response.ok) {
                 const err = await response.json();
-                throw new Error(err.detail || 'Knippen mislukt');
+                throw new Error(err.detail || "Knippen mislukt");
             }
 
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `fragment_${recordingId}.mp3`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = `${stationName.replace(/[^a-z0-9]+/gi, "_")}_fragment.mp3`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
             URL.revokeObjectURL(url);
 
-            statusEl.textContent = 'Fragment gedownload!';
-            statusEl.className = 'text-sm mt-3 text-purple-600 font-medium';
+            statusEl.textContent = "Fragment gedownload!";
+            statusEl.className = "text-sm mt-3 text-purple-600 font-medium";
         } catch (err) {
-            statusEl.textContent = 'Fout: ' + err.message;
-            statusEl.className = 'text-sm mt-3 text-red-500';
+            statusEl.textContent = "Fout: " + err.message;
+            statusEl.className = "text-sm mt-3 text-red-500";
         } finally {
-            trimBtn.disabled = false;
+            downloadBtn.disabled = !(activeRegion && activeRegion.end > activeRegion.start);
+        }
+    });
+
+    document.querySelector("#waveform").addEventListener("wheel", (event) => {
+        event.preventDefault();
+        if (event.deltaY < 0) {
+            zoomLevel += 5;
+        } else {
+            zoomLevel = Math.max(0, zoomLevel - 5);
+        }
+        wavesurfer.zoom(zoomLevel || 1);
+    }, { passive: false });
+
+    document.querySelector("#waveform").addEventListener("dblclick", () => {
+        wavesurfer.play();
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA") {
+            return;
+        }
+        if (event.code === "Space" || event.key === " ") {
+            event.preventDefault();
+            wavesurfer.playPause();
         }
     });
 </script>

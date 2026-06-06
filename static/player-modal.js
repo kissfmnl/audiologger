@@ -12,7 +12,13 @@
     const pauseIcon = document.getElementById("player-modal-pause-icon");
     const currentTimeEl = document.getElementById("player-modal-current");
     const totalTimeEl = document.getElementById("player-modal-total");
-    const trimLink = document.getElementById("player-modal-trim");
+    const trimSection = document.getElementById("player-modal-trim-section");
+    const selStartBtn = document.getElementById("player-modal-sel-start-btn");
+    const selEndBtn = document.getElementById("player-modal-sel-end-btn");
+    const downloadBtn = document.getElementById("player-modal-download-btn");
+    const selStartEl = document.getElementById("player-modal-sel-start");
+    const selEndEl = document.getElementById("player-modal-sel-end");
+    const trimStatusEl = document.getElementById("player-modal-trim-status");
     const zoomSlider = document.getElementById("player-modal-zoom");
     const zoomLabel = document.getElementById("player-modal-zoom-label");
     const panWrap = document.getElementById("player-modal-pan-wrap");
@@ -29,9 +35,13 @@
     const MAX_ZOOM = 48;
     const PAN_STEPS = 1000;
     const WAVEFORM_WAIT_SEC = 3;
+    const SELECTION_DEFAULT_SEC = 10;
+    const WAVE_COLOR_IDLE = "#C4B5FD";
+    const WAVE_COLOR_PLAYED = "#7C3AED";
+    const WAVE_COLOR_CURSOR = "#6D28D9";
     const countdownEl = document.getElementById("player-modal-countdown");
     const countdownRing = document.getElementById("player-modal-countdown-ring");
-    const COUNTDOWN_CIRC = 326.7;
+    const COUNTDOWN_CIRC = 163.4;
 
     const bootstrapEl = document.getElementById("peaks-bootstrap");
     if (bootstrapEl) {
@@ -56,6 +66,9 @@
     let viewStart = 0;
     let lastFocusInView = 0.5;
     let syncingZoomSlider = false;
+    let selectionRegion = null;
+    let currentRecordingId = null;
+    let canTrim = false;
 
     function parseInlinePeaks(raw) {
         if (!raw) {
@@ -254,13 +267,25 @@
         const progress = timeToRatio(audio ? audio.currentTime : 0);
         const playheadX = ratioToCanvasX(progress);
 
-        drawFilledWave(samples, width, height, mid, "#86EFAC", null);
+        drawFilledWave(samples, width, height, mid, WAVE_COLOR_IDLE, null);
         if (playheadX > 0) {
-            drawFilledWave(samples, width, height, mid, "#1E3A8A", playheadX);
+            drawFilledWave(samples, width, height, mid, WAVE_COLOR_PLAYED, playheadX);
+        }
+
+        if (selectionRegion && duration > 0) {
+            const startX = ratioToCanvasX(timeToRatio(selectionRegion.start));
+            const endX = ratioToCanvasX(timeToRatio(selectionRegion.end));
+            const left = Math.min(startX, endX);
+            const selWidth = Math.abs(endX - startX);
+            ctx.fillStyle = "rgba(124, 58, 237, 0.18)";
+            ctx.fillRect(left, 0, selWidth, height);
+            ctx.strokeStyle = WAVE_COLOR_PLAYED;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(left + 0.5, 0.5, Math.max(0, selWidth - 1), height - 1);
         }
 
         if (playheadX >= 0 && playheadX <= width) {
-            ctx.fillStyle = "#312E81";
+            ctx.fillStyle = WAVE_COLOR_CURSOR;
             ctx.fillRect(Math.max(0, playheadX - 1), 0, 2, height);
         }
     }
@@ -304,6 +329,152 @@
         }
     }
 
+    function formatTimePrecise(seconds) {
+        if (seconds === null || seconds === undefined) {
+            return "—";
+        }
+        const mins = Math.floor(seconds / 60);
+        const secs = (seconds % 60).toFixed(1);
+        return `${mins}:${secs.padStart(4, "0")}`;
+    }
+
+    function resetSelection() {
+        selectionRegion = null;
+        currentRecordingId = null;
+        canTrim = false;
+        if (selStartEl) {
+            selStartEl.textContent = "—";
+        }
+        if (selEndEl) {
+            selEndEl.textContent = "—";
+        }
+        if (downloadBtn) {
+            downloadBtn.disabled = true;
+        }
+        if (trimStatusEl) {
+            trimStatusEl.classList.add("hidden");
+            trimStatusEl.textContent = "";
+        }
+        if (trimSection) {
+            trimSection.classList.add("hidden");
+        }
+    }
+
+    function updateSelectionUi() {
+        if (!selectionRegion) {
+            if (selStartEl) {
+                selStartEl.textContent = "—";
+            }
+            if (selEndEl) {
+                selEndEl.textContent = "—";
+            }
+            if (downloadBtn) {
+                downloadBtn.disabled = true;
+            }
+            return;
+        }
+        if (selStartEl) {
+            selStartEl.textContent = formatTimePrecise(selectionRegion.start);
+        }
+        if (selEndEl) {
+            selEndEl.textContent = formatTimePrecise(selectionRegion.end);
+        }
+        if (downloadBtn) {
+            downloadBtn.disabled = !canTrim || selectionRegion.end <= selectionRegion.start;
+        }
+    }
+
+    function setSelectionStart() {
+        if (!audio) {
+            return;
+        }
+        const t = audio.currentTime;
+        const max = duration || t + SELECTION_DEFAULT_SEC;
+        if (selectionRegion) {
+            if (t < selectionRegion.end) {
+                selectionRegion.start = t;
+            } else {
+                selectionRegion = { start: t, end: Math.min(max, t + SELECTION_DEFAULT_SEC) };
+            }
+        } else {
+            selectionRegion = { start: t, end: Math.min(max, t + SELECTION_DEFAULT_SEC) };
+        }
+        updateSelectionUi();
+        drawWaveform();
+    }
+
+    function setSelectionEnd() {
+        if (!audio) {
+            return;
+        }
+        const t = audio.currentTime;
+        if (selectionRegion) {
+            if (selectionRegion.start < t) {
+                selectionRegion.end = t;
+            } else {
+                selectionRegion = {
+                    start: Math.max(0, t - SELECTION_DEFAULT_SEC),
+                    end: t,
+                };
+            }
+        } else {
+            selectionRegion = {
+                start: Math.max(0, t - SELECTION_DEFAULT_SEC),
+                end: t,
+            };
+        }
+        updateSelectionUi();
+        drawWaveform();
+    }
+
+    async function downloadSelection() {
+        if (!canTrim || !currentRecordingId || !selectionRegion) {
+            return;
+        }
+        const startSec = Math.round(10 * selectionRegion.start) / 10;
+        const endSec = Math.round(10 * selectionRegion.end) / 10;
+        if (endSec <= startSec) {
+            return;
+        }
+
+        downloadBtn.disabled = true;
+        trimStatusEl.classList.remove("hidden");
+        trimStatusEl.textContent = "Bezig met knippen…";
+        trimStatusEl.className = "text-xs mt-2 text-muted";
+
+        try {
+            const response = await fetch("/api/trim", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    recording_id: currentRecordingId,
+                    start_sec: startSec,
+                    end_sec: endSec,
+                }),
+            });
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || "Knippen mislukt");
+            }
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = "fragment.mp3";
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            URL.revokeObjectURL(url);
+            trimStatusEl.textContent = "Fragment gedownload!";
+            trimStatusEl.className = "text-xs mt-2 text-purple-600 font-medium";
+        } catch (error) {
+            trimStatusEl.textContent = error.message || "Knippen mislukt";
+            trimStatusEl.className = "text-xs mt-2 text-red-500";
+        } finally {
+            updateSelectionUi();
+        }
+    }
+
     function destroyPlayer() {
         stopAnimation();
         if (audio) {
@@ -315,6 +486,7 @@
         peaks = [];
         duration = 0;
         peaksUrl = "";
+        resetSelection();
         resetZoom();
     }
 
@@ -372,7 +544,7 @@
             const attempt = async () => {
                 try {
                     const data = await fetchPeaks(url, true);
-                    if (data?.precise && data.peaks?.length) {
+                    if (data?.precise && peakValues(data).length) {
                         resolve(data);
                         return;
                     }
@@ -393,7 +565,7 @@
         const requestUrl = force ? url : peaksRequestUrl(url, waitSeconds);
         if (!force && waitSeconds === 0 && peaksCache.has(url)) {
             const cached = peaksCache.get(url);
-            if (cached?.precise && cached.peaks?.length) {
+            if (cached?.precise && peakValues(cached).length) {
                 return cached;
             }
         }
@@ -409,7 +581,7 @@
                 return response.json();
             })
             .then((data) => {
-                if (data?.precise && data.peaks?.length) {
+                if (data?.precise && peakValues(data).length) {
                     peaksCache.set(url, { ...(peaksCache.get(url) || {}), ...data });
                 }
                 return peaksCache.get(url) || data;
@@ -429,8 +601,18 @@
         fetchPeaks(url).catch(() => {});
     }
 
+    function peakValues(data) {
+        if (!data) {
+            return [];
+        }
+        if (data.data?.length) {
+            return data.data;
+        }
+        return data.peaks || [];
+    }
+
     function applyPeaksData(data) {
-        peaks = data.peaks || [];
+        peaks = peakValues(data);
         duration = data.duration || duration || 3600;
         totalTimeEl.textContent = formatTime(duration);
         resizeCanvas();
@@ -461,11 +643,10 @@
             subtitleEl.textContent = "Volledig uur";
         }
 
-        if (data.recording_id && !data.is_live) {
-            trimLink.href = `/player/${data.recording_id}`;
-            trimLink.classList.remove("hidden");
-        } else {
-            trimLink.classList.add("hidden");
+        currentRecordingId = data.recording_id || null;
+        canTrim = Boolean(currentRecordingId && !data.is_live);
+        if (trimSection) {
+            trimSection.classList.toggle("hidden", !canTrim);
         }
 
         applyPeaksData(data);
@@ -492,10 +673,15 @@
         subtitleEl.textContent = "Wavevorm voorbereiden…";
         currentTimeEl.textContent = "0:00";
         totalTimeEl.textContent = formatTime(buttonDuration);
-        trimLink.classList.add("hidden");
+        resetSelection();
         setPlayingState(false);
         peaks = [];
         resizeCanvas();
+
+        currentRecordingId = button.dataset.recordingId
+            ? Number(button.dataset.recordingId)
+            : null;
+        canTrim = Boolean(currentRecordingId);
 
         const inlinePeaks = parseInlinePeaks(button.dataset.peaks);
         const cachedMeta = peaksCache.get(url) || {};
@@ -506,18 +692,21 @@
             peaksCache.set(url, cachedMeta);
         }
 
-        const hasCachedPeaks = Boolean(cachedMeta.precise && cachedMeta.peaks?.length);
+        const hasCachedPeaks = Boolean(cachedMeta.precise && peakValues(cachedMeta).length);
         const peaksPromise = hasCachedPeaks
             ? Promise.resolve(cachedMeta)
             : fetchPeaks(url, false, WAVEFORM_WAIT_SEC);
 
         try {
-            const [, peakData] = await Promise.all([runCountdown(WAVEFORM_WAIT_SEC), peaksPromise]);
+            const [, peakData] = await Promise.all([
+                hasCachedPeaks ? Promise.resolve() : runCountdown(WAVEFORM_WAIT_SEC),
+                peaksPromise,
+            ]);
             let data = peakData;
-            if (!data?.precise || !data.peaks?.length) {
+            if (!data?.precise || !peakValues(data).length) {
                 data = await waitForPrecisePeaks(url);
             }
-            if (!data?.peaks?.length) {
+            if (!peakValues(data).length) {
                 throw new Error("Wavevorm kon niet worden geladen");
             }
 
@@ -537,6 +726,9 @@
             });
 
             controlsEl.classList.remove("opacity-40", "pointer-events-none");
+            if (trimSection && canTrim) {
+                trimSection.classList.remove("hidden");
+            }
             resizeCanvas();
             startAnimation();
         } catch (error) {
@@ -607,6 +799,25 @@
 
     canvas.addEventListener("click", seekFromPointer);
 
+    canvas.addEventListener("dblclick", () => {
+        if (!audio) {
+            return;
+        }
+        audio.play().catch(() => {
+            subtitleEl.textContent = "Afspelen mislukt";
+        });
+    });
+
+    if (selStartBtn) {
+        selStartBtn.addEventListener("click", setSelectionStart);
+    }
+    if (selEndBtn) {
+        selEndBtn.addEventListener("click", setSelectionEnd);
+    }
+    if (downloadBtn) {
+        downloadBtn.addEventListener("click", downloadSelection);
+    }
+
     closeBtn.addEventListener("click", closeModal);
 
     modal.addEventListener("click", (event) => {
@@ -634,6 +845,20 @@
             zoomOut(lastFocusInView);
         } else if (event.key === "0") {
             resetZoom();
+        } else if (
+            (event.code === "Space" || event.key === " ")
+            && event.target.tagName !== "INPUT"
+            && event.target.tagName !== "TEXTAREA"
+        ) {
+            event.preventDefault();
+            if (!audio) {
+                return;
+            }
+            if (audio.paused) {
+                audio.play().catch(() => {});
+            } else {
+                audio.pause();
+            }
         }
     });
 })();

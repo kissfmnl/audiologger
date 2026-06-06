@@ -11,7 +11,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BARS = 512
+PEAK_POINTS = 8000
 WIRE_BARS = 512
 EMBED_BARS = 256
 BYTES_PER_SECOND_128K = 16000
@@ -52,8 +52,10 @@ def peaks_cache_exists(path: Path) -> bool:
 
 
 def _wire_response(peaks: list[float], duration: float, precise: bool) -> dict:
+    wire = downsample_peaks(peaks, WIRE_BARS)
     return {
-        "peaks": downsample_peaks(peaks),
+        "data": peaks,
+        "peaks": wire,
         "duration": duration,
         "ready": True,
         "precise": precise,
@@ -170,7 +172,7 @@ def _decode_peaks_audiowaveform(path: Path, bars: int) -> tuple[list[float], flo
             ],
             capture_output=True,
             text=True,
-            timeout=90,
+            timeout=120,
             check=False,
         )
         if result.returncode != 0:
@@ -194,8 +196,8 @@ def _decode_peaks_audiowaveform(path: Path, bars: int) -> tuple[list[float], flo
 
 
 def _decode_peaks_ffmpeg(path: Path, bars: int) -> tuple[list[float], float]:
-    duration = max(estimate_duration(path), 1.0)
-    sample_rate = 80
+    duration = max(get_audio_duration(path), 1.0)
+    sample_rate = max(8000, bars * 2)
     samples_per_bar = max(1, int(duration * sample_rate / bars))
 
     try:
@@ -216,7 +218,7 @@ def _decode_peaks_ffmpeg(path: Path, bars: int) -> tuple[list[float], float]:
                 "-ar",
                 str(sample_rate),
                 "-f",
-                "s16le",
+                "f32le",
                 "-",
             ],
             stdout=subprocess.PIPE,
@@ -227,7 +229,7 @@ def _decode_peaks_ffmpeg(path: Path, bars: int) -> tuple[list[float], float]:
         return [], duration
 
     peaks: list[float] = []
-    bar_max = 0
+    bar_max = 0.0
     samples_in_bar = 0
     buffer = b""
 
@@ -239,20 +241,20 @@ def _decode_peaks_ffmpeg(path: Path, bars: int) -> tuple[list[float], float]:
         buffer += chunk
 
         offset = 0
-        while offset + 2 <= len(buffer) and len(peaks) < bars:
-            sample = struct.unpack_from("<h", buffer, offset)[0]
-            offset += 2
+        while offset + 4 <= len(buffer) and len(peaks) < bars:
+            sample = struct.unpack_from("<f", buffer, offset)[0]
+            offset += 4
             bar_max = max(bar_max, abs(sample))
             samples_in_bar += 1
             if samples_in_bar >= samples_per_bar:
-                peaks.append(bar_max / 32768.0)
-                bar_max = 0
+                peaks.append(bar_max)
+                bar_max = 0.0
                 samples_in_bar = 0
 
         buffer = buffer[offset:]
 
     if bar_max > 0 and len(peaks) < bars:
-        peaks.append(bar_max / 32768.0)
+        peaks.append(bar_max)
 
     try:
         process.terminate()
@@ -288,7 +290,7 @@ def load_cached_peaks(path: Path) -> tuple[list[float], float] | None:
             return None
         if int(cache.get("source_size", -1)) != int(path.stat().st_size):
             return None
-        peaks = cache.get("wire_peaks") or cache.get("peaks", [])
+        peaks = cache.get("data") or cache.get("peaks", [])
         duration = float(cache.get("duration", 3600))
         if peaks:
             return peaks, duration
@@ -306,15 +308,16 @@ def read_embed_peaks(path: Path | None) -> list[float] | None:
     return downsample_peaks(cached[0], EMBED_BARS)
 
 
-def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> None:
+def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> Path:
     cache_path = peaks_cache_path(path)
     try:
         stat = path.stat()
-        wire_peaks = downsample_peaks(peaks, EMBED_BARS)
+        wire_peaks = downsample_peaks(peaks, WIRE_BARS)
         cache_path.write_text(
             json.dumps(
                 {
                     "duration": duration,
+                    "data": peaks,
                     "peaks": peaks,
                     "wire_peaks": wire_peaks,
                     "source_mtime": int(stat.st_mtime),
@@ -326,6 +329,7 @@ def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> None:
         )
     except OSError as exc:
         logger.warning("Could not write peaks cache %s: %s", cache_path, exc)
+    return cache_path
 
 
 def read_peaks_fast(path: Path, max_wait: float = 0.0) -> dict:
@@ -336,7 +340,8 @@ def read_peaks_fast(path: Path, max_wait: float = 0.0) -> dict:
 
     duration = estimate_duration(path)
     if not path.exists() or path.stat().st_size == 0:
-        response = _wire_response(placeholder_peaks(), duration, False)
+        placeholder = placeholder_peaks()
+        response = _wire_response(placeholder, duration, False)
         _store_response(path, response)
         return response
 
@@ -367,6 +372,7 @@ def read_peaks_fast(path: Path, max_wait: float = 0.0) -> dict:
 
     ensure_peaks_async(path)
     return {
+        "data": [],
         "peaks": [],
         "duration": duration,
         "ready": False,
@@ -379,7 +385,7 @@ def ensure_peaks(path: Path) -> None:
         return
     if load_cached_peaks(path):
         return
-    peaks, duration = _decode_peaks(path, DEFAULT_BARS)
+    peaks, duration = _decode_peaks(path, PEAK_POINTS)
     if peaks:
         save_cached_peaks(path, peaks, duration)
         _store_response(path, _wire_response(peaks, duration, True))
