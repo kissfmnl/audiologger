@@ -218,7 +218,7 @@
                 return response.json();
             })
             .then((payload) => {
-                const peakData = payload.data?.length ? payload.data : payload.peaks;
+                const peakData = payload.peaks;
                 if (peakData?.length) {
                     wavesurfer.load(audioUrl, peakData, payload.duration);
                 } else {

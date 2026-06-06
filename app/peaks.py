@@ -11,9 +11,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-PEAK_POINTS = 8000
+PEAK_POINTS = 512
 WIRE_BARS = 512
-EMBED_BARS = 256
 BYTES_PER_SECOND_128K = 16000
 _response_cache: dict[str, tuple[int, int, dict]] = {}
 _response_cache_lock = threading.Lock()
@@ -54,7 +53,6 @@ def peaks_cache_exists(path: Path) -> bool:
 def _wire_response(peaks: list[float], duration: float, precise: bool) -> dict:
     wire = downsample_peaks(peaks, WIRE_BARS)
     return {
-        "data": peaks,
         "peaks": wire,
         "duration": duration,
         "ready": True,
@@ -290,22 +288,16 @@ def load_cached_peaks(path: Path) -> tuple[list[float], float] | None:
             return None
         if int(cache.get("source_size", -1)) != int(path.stat().st_size):
             return None
-        peaks = cache.get("data") or cache.get("peaks", [])
+        wire = cache.get("wire_peaks")
+        if wire:
+            return wire, float(cache.get("duration", 3600))
+        peaks = cache.get("peaks", [])
         duration = float(cache.get("duration", 3600))
         if peaks:
-            return peaks, duration
+            return downsample_peaks(peaks, WIRE_BARS), duration
     except (OSError, ValueError, TypeError):
         return None
     return None
-
-
-def read_embed_peaks(path: Path | None) -> list[float] | None:
-    if not path:
-        return None
-    cached = load_cached_peaks(path)
-    if not cached:
-        return None
-    return downsample_peaks(cached[0], EMBED_BARS)
 
 
 def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> Path:
@@ -317,8 +309,6 @@ def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> Path:
             json.dumps(
                 {
                     "duration": duration,
-                    "data": peaks,
-                    "peaks": peaks,
                     "wire_peaks": wire_peaks,
                     "source_mtime": int(stat.st_mtime),
                     "source_size": int(stat.st_size),
@@ -372,7 +362,6 @@ def read_peaks_fast(path: Path, max_wait: float = 0.0) -> dict:
 
     ensure_peaks_async(path)
     return {
-        "data": [],
         "peaks": [],
         "duration": duration,
         "ready": False,

@@ -1,6 +1,5 @@
 import logging
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from sqlmodel import Session
@@ -8,23 +7,9 @@ from sqlmodel import Session
 logger = logging.getLogger(__name__)
 
 from app.database import get_recording_for_hour, get_recordings
-from app.peaks import estimate_duration, read_embed_peaks
+from app.peaks import estimate_duration
 from app.recorder import finalize_stale_recording, get_partial_path_for_hour, is_hour_actively_recording
 from app.stations import should_record_station
-
-
-def _slot_audio_path(
-    station: dict,
-    hour_start: datetime,
-    recording,
-    status: str,
-) -> Path | None:
-    if recording and status == "completed":
-        path = Path(recording.file_path)
-        return path if path.exists() else None
-    if status == "recording":
-        return get_partial_path_for_hour(station, hour_start)
-    return None
 
 
 def build_hour_slots(
@@ -77,8 +62,6 @@ def build_hour_slots(
         peaks_url = ""
         recording_id = None
         duration_seconds = 3600
-        wire_peaks = None
-
         if status == "completed" and recording:
             playable = True
             filename = recording.file_path.split("/")[-1]
@@ -108,10 +91,6 @@ def build_hour_slots(
                         f"?date={selected_date}&hour={hour}"
                     )
 
-        if playable:
-            audio_path = _slot_audio_path(station, hour_start, recording, status)
-            wire_peaks = read_embed_peaks(audio_path)
-
         slots.append(
             {
                 "hour": hour,
@@ -124,7 +103,6 @@ def build_hour_slots(
                 "peaks_url": peaks_url,
                 "recording_id": recording_id,
                 "duration_seconds": duration_seconds,
-                "wire_peaks": wire_peaks,
             }
         )
 

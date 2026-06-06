@@ -602,13 +602,7 @@
     }
 
     function peakValues(data) {
-        if (!data) {
-            return [];
-        }
-        if (data.data?.length) {
-            return data.data;
-        }
-        return data.peaks || [];
+        return data?.peaks || [];
     }
 
     function applyPeaksData(data) {

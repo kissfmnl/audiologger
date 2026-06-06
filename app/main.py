@@ -26,17 +26,8 @@ from app.database import (
 from app.archive_view import build_hour_slots
 from app.convert_recordings import convert_wav_recordings
 from app.editor import trim_recording
-from app.peaks import (
-    ensure_peaks_async,
-    estimate_duration,
-    read_peaks_fast,
-    warm_missing_peaks,
-)
-from app.recorder import (
-    finalize_stale_recording,
-    get_partial_path_for_hour,
-    get_partial_recording_path,
-)
+from app.peaks import estimate_duration, read_peaks_fast, warm_missing_peaks
+from app.recorder import get_partial_path_for_hour, get_partial_recording_path
 from app.scheduler import setup_scheduler, shutdown_scheduler
 from app.contact_protection import HONEYPOT_FIELD, issue_contact_form, validate_contact_submission
 from app.site_settings import add_stream_request, load_site_settings
@@ -142,15 +133,6 @@ def _audio_path_for_slot(station: dict, selected_date: str, slot: dict) -> Path 
     return get_partial_path_for_hour(station, hour_start)
 
 
-def _warm_hour_slot_peaks(station: dict, selected_date: str, hour_slots: list[dict]) -> None:
-    for slot in hour_slots:
-        if not slot.get("playable"):
-            continue
-        audio_path = _audio_path_for_slot(station, selected_date, slot)
-        if audio_path:
-            ensure_peaks_async(audio_path)
-
-
 def _slot_duration(slot: dict, audio_path: Path | None) -> float:
     recording = slot.get("recording")
     if recording and recording.duration_seconds:
@@ -174,16 +156,14 @@ def _build_peaks_bootstrap(
         audio_path = _audio_path_for_slot(station, selected_date, slot)
         entry = {
             "duration": _slot_duration(slot, audio_path),
-            "ready": True,
-            "precise": bool(slot.get("wire_peaks")),
+            "ready": False,
+            "precise": False,
             "audio_url": slot["audio_url"],
             "peaks_url": slot["peaks_url"],
             "is_live": slot["status"] == "recording",
             "title": f"{station['name']} · {slot['label']}",
             "recording_id": slot.get("recording_id"),
         }
-        if slot.get("wire_peaks"):
-            entry["peaks"] = slot["wire_peaks"]
         bootstrap[slot["peaks_url"]] = entry
     return bootstrap
 
@@ -203,7 +183,6 @@ def build_station_page_context(
     selected_date = date_filter or today.isoformat()
 
     hour_slots = build_hour_slots(station, selected_date, session)
-    _warm_hour_slot_peaks(station, selected_date, hour_slots)
 
     return {
         "station": station,
@@ -468,18 +447,12 @@ def api_peaks(
     if not recording or recording.status not in ("completed", "recording"):
         raise HTTPException(status_code=404, detail="Recording not found")
 
-    if recording.status == "recording":
-        station = get_station_by_id(recording.station_id)
-        if station:
-            recording = finalize_stale_recording(session, station, recording)
-
     audio_path = _recording_audio_path(recording)
     if not audio_path:
         raise HTTPException(status_code=404, detail="Audio file not found")
 
     peak_data = read_peaks_fast(audio_path, max_wait=wait)
     payload = {
-        "data": peak_data.get("data") or peak_data.get("peaks", []),
         "peaks": peak_data["peaks"],
         "duration": peak_data["duration"],
         "ready": peak_data["ready"],
@@ -517,7 +490,6 @@ def api_peaks_hour(
     peak_data = read_peaks_fast(audio_path, max_wait=wait)
     return JSONResponse(
         content={
-            "data": peak_data.get("data") or peak_data.get("peaks", []),
             "peaks": peak_data["peaks"],
             "duration": peak_data["duration"],
             "ready": peak_data["ready"],

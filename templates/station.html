@@ -8,7 +8,13 @@
 
     <div class="flex-1 min-w-0">
         <div class="flex items-center gap-3 mb-6">
+            {% if station.logo_url %}
+            <img src="{{ station.logo_url }}?v={{ station.id }}" alt="{{ station.name }}"
+                 class="station-logo w-12 h-12 rounded-xl object-cover border border-gray-200 bg-gray-100 shrink-0"
+                 draggable="false" oncontextmenu="return false">
+            {% else %}
             <span class="text-3xl shrink-0">{{ station.flag }}</span>
+            {% endif %}
             <div class="min-w-0">
                 <h1 class="text-2xl font-bold text-heading truncate">{{ station.name }}</h1>
                 <p class="text-sm text-muted">{{ station.country_name | default(station.country) }}</p>
@@ -53,8 +59,7 @@
                                 data-audio-url="{{ slot.audio_url }}"
                                 data-duration="{{ slot.duration_seconds }}"
                                 data-title="{{ station.name }} · {{ slot.label }}"
-                                {% if slot.recording_id %}data-recording-id="{{ slot.recording_id }}"{% endif %}
-                                {% if slot.wire_peaks %}data-peaks="{{ slot.wire_peaks | join(',') }}"{% endif %}>
+                                {% if slot.recording_id %}data-recording-id="{{ slot.recording_id }}"{% endif %}>
                             Editor
                         </button>
                         <a href="{{ slot.download_url }}"
@@ -192,5 +197,5 @@
 
 {% block scripts %}
 <script id="peaks-bootstrap" type="application/json">{{ peaks_bootstrap | tojson }}</script>
-<script src="/static/player-modal.js?v=6"></script>
+<script src="/static/player-modal.js?v=7"></script>
 {% endblock %}
