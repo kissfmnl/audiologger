@@ -21,10 +21,11 @@
             </div>
         </div>
 
-        <div class="flex gap-2 mb-6 overflow-x-auto pb-1 flex-nowrap">
+        <div class="grid grid-cols-7 gap-1 mb-6 w-full">
             {% for tab in date_tabs %}
             <a href="/station/{{ station.id }}?date={{ tab.date }}{% if selected_country != 'ALL' %}&country={{ selected_country }}{% endif %}"
-               class="px-4 py-2 rounded-xl text-sm font-medium transition whitespace-nowrap shrink-0
+               title="{{ tab.title }}"
+               class="px-1 py-2 rounded-lg text-xs sm:text-sm font-medium transition text-center truncate
                       {% if tab.date == selected_date %}bg-purple-600 text-white shadow-sm{% else %}bg-surface text-body hover:bg-gray-100 border border-gray-200{% endif %}">
                 {{ tab.label }}
             </a>

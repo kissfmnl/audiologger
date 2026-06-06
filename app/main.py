@@ -48,6 +48,7 @@ DUTCH_WEEKDAYS = (
     "Zaterdag",
     "Zondag",
 )
+DUTCH_WEEKDAYS_SHORT = ("zo", "ma", "di", "wo", "do", "vr", "za")
 DUTCH_MONTHS = (
     "Jan",
     "Feb",
@@ -82,6 +83,12 @@ def format_date_tab_label(day: date, today: date) -> str:
     return f"{DUTCH_WEEKDAYS[day.weekday()]} {day.day:02d} {month}"
 
 
+def format_date_tab_short_label(day: date, today: date) -> str:
+    if day == today:
+        return "Vandaag"
+    return f"{DUTCH_WEEKDAYS_SHORT[day.weekday()]} {day.day:02d}"
+
+
 def build_date_tabs(station: dict, days: int = 7) -> list[dict]:
     today = station_today(station)
     tabs = []
@@ -90,7 +97,8 @@ def build_date_tabs(station: dict, days: int = 7) -> list[dict]:
         tabs.append(
             {
                 "date": day.isoformat(),
-                "label": format_date_tab_label(day, today),
+                "label": format_date_tab_short_label(day, today),
+                "title": format_date_tab_label(day, today),
             }
         )
     return tabs
