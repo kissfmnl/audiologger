@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from sqlmodel import Session, select
 
 from app.database import LOGS_DIR, RECORDINGS_DIR, engine
+from app.galio import ensure_galio_async
 from app.peaks import ensure_peaks_async
 from app.models import Recording
 
@@ -98,6 +99,12 @@ def get_partial_recording_path(recording: Recording) -> Path | None:
 
 
 MIN_VALID_MP3_BYTES = 100_000
+
+
+def _hour_end(start_time: datetime, tz: ZoneInfo) -> datetime:
+    if start_time.tzinfo is None:
+        return start_time.replace(tzinfo=tz) + timedelta(hours=1)
+    return start_time.astimezone(tz) + timedelta(hours=1)
 
 
 def has_completed_recording(station_id: str, start_time: datetime) -> bool:
@@ -400,6 +407,7 @@ def _record_station_locked(station: dict, start_time: datetime, tz: ZoneInfo) ->
             )
 
         ensure_peaks_async(output_path)
+        ensure_galio_async(output_path)
         return recording
     finally:
         shutil.rmtree(parts_dir, ignore_errors=True)
@@ -416,7 +424,7 @@ def finalize_stale_recording(
 
     tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
     start_time = recording.start_time
-    hour_end = start_time.replace(tzinfo=tz) + timedelta(hours=1)
+    hour_end = _hour_end(start_time, tz)
     now = datetime.now(tz)
 
     if now < hour_end + timedelta(seconds=90):
@@ -432,6 +440,7 @@ def finalize_stale_recording(
     if output_path.exists() and output_path.stat().st_size >= MIN_VALID_MP3_BYTES:
         updated = save_recording_to_db(session, station, start_time, output_path, "completed")
         ensure_peaks_async(output_path)
+        ensure_galio_async(output_path)
         logger.info("Finalized stale recording as completed: %s %s", station["id"], start_time)
         return updated
 
@@ -442,6 +451,7 @@ def finalize_stale_recording(
     if segments and concat_mp3_segments(segments, output_path):
         updated = save_recording_to_db(session, station, start_time, output_path, "completed")
         ensure_peaks_async(output_path)
+        ensure_galio_async(output_path)
         shutil.rmtree(parts_dir, ignore_errors=True)
         logger.info("Salvaged stale recording from parts: %s %s", station["id"], start_time)
         return updated

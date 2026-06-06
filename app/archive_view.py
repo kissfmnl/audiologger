@@ -1,8 +1,11 @@
+import logging
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from sqlmodel import Session
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_recording_for_hour, get_recordings
 from app.peaks import estimate_duration, read_embed_peaks
@@ -37,7 +40,10 @@ def build_hour_slots(
     recordings_by_hour: dict[int, object] = {}
     for recording in get_recordings(session, station_id=station["id"], date_filter=selected_date):
         if recording.status == "recording":
-            recording = finalize_stale_recording(session, station, recording)
+            try:
+                recording = finalize_stale_recording(session, station, recording)
+            except Exception:
+                logger.exception("Could not finalize recording %s", recording.id)
         recordings_by_hour[recording.start_time.hour] = recording
 
     slots = []
@@ -60,11 +66,6 @@ def build_hour_slots(
             status = "pending"
         else:
             status = "missing"
-
-        progress_label = ""
-        if status == "recording":
-            elapsed = max(0, int((now - slot_moment).total_seconds()))
-            progress_label = f"{min(60, max(1, elapsed // 60))} min"
 
         playable = False
         audio_url = ""
@@ -113,7 +114,6 @@ def build_hour_slots(
                 "label": f"{hour:02d}:00:00",
                 "recording": recording,
                 "status": status,
-                "progress_label": progress_label,
                 "playable": playable,
                 "audio_url": audio_url,
                 "download_url": download_url,

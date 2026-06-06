@@ -56,6 +56,19 @@
 
             <nav class="flex-1 space-y-5 overflow-y-auto">
                 <div>
+                    <p class="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-violet-300">Website</p>
+                    <ul class="space-y-0.5 mb-4">
+                        <li>
+                            <a href="/admin/website"
+                               class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition border
+                               {% if active_nav == 'website' %}bg-accent-light text-accent-muted border-accent-border{% else %}text-slate-600 hover:bg-violet-50 border-transparent{% endif %}">
+                                <svg class="w-4 h-4 shrink-0 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/>
+                                </svg>
+                                Website
+                            </a>
+                        </li>
+                    </ul>
                     <p class="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-violet-300">Radio</p>
                     <ul class="space-y-0.5">
                         <li>

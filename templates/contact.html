@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Stream aanvragen — AudioLogger{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto">
+    <h1 class="text-2xl font-bold text-heading mb-2">Stream aanvragen</h1>
+    <p class="text-sm text-muted mb-8">
+        Wil je dat wij jouw radiostream opnemen? Vul het formulier in. We nemen contact op.
+    </p>
+
+    {% if sent %}
+    <div class="rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 text-sm mb-6">
+        Bedankt! Je aanvraag is ontvangen.
+    </div>
+    {% endif %}
+
+    <form method="post" action="/contact" class="bg-surface rounded-2xl shadow-card border border-gray-100 p-6 space-y-4">
+        <div>
+            <label class="block text-sm font-medium text-heading mb-1">Naam / organisatie</label>
+            <input type="text" name="name" required
+                   class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-heading mb-1">E-mail</label>
+            <input type="email" name="email"
+                   class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-heading mb-1">Zendernaam</label>
+            <input type="text" name="station_name" required
+                   class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-heading mb-1">Stream-URL</label>
+            <input type="url" name="stream_url" required placeholder="https://..."
+                   class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-heading mb-1">Opmerking (optioneel)</label>
+            <textarea name="message" rows="3"
+                      class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"></textarea>
+        </div>
+        <button type="submit"
+                class="w-full py-2.5 rounded-xl bg-purple-600 text-white font-medium hover:bg-purple-700 transition">
+            Verstuur aanvraag
+        </button>
+    </form>
+</div>
+{% endblock %}

@@ -5,10 +5,11 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel, Field
 from sqlmodel import Session
@@ -36,6 +37,7 @@ from app.recorder import (
     get_partial_recording_path,
 )
 from app.scheduler import setup_scheduler, shutdown_scheduler
+from app.site_settings import add_stream_request, load_site_settings
 from app.stations import load_stations, get_station_by_id
 from app.admin_auth import get_session_middleware_kwargs
 from app.admin_routes import router as admin_router
@@ -249,7 +251,14 @@ async def lifespan(app: FastAPI):
     logger.info("AudioLogger stopped")
 
 
+class SiteSettingsMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        request.state.site = load_site_settings()
+        return await call_next(request)
+
+
 app = FastAPI(title="AudioLogger", lifespan=lifespan)
+app.add_middleware(SiteSettingsMiddleware)
 app.add_middleware(SessionMiddleware, **get_session_middleware_kwargs())
 app.include_router(admin_router)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -271,6 +280,36 @@ def recording_to_dict(recording) -> dict:
         "file_size_mb": recording.file_size_mb,
         "status": recording.status,
     }
+
+
+@app.get("/contact", response_class=HTMLResponse)
+def contact_page(request: Request, sent: int = Query(default=0)):
+    return templates.TemplateResponse(
+        request,
+        "contact.html",
+        {"sent": bool(sent)},
+    )
+
+
+@app.post("/contact")
+def contact_submit(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(default=""),
+    station_name: str = Form(...),
+    stream_url: str = Form(...),
+    message: str = Form(default=""),
+):
+    add_stream_request(
+        {
+            "name": name.strip(),
+            "email": email.strip(),
+            "station_name": station_name.strip(),
+            "stream_url": stream_url.strip(),
+            "message": message.strip(),
+        }
+    )
+    return RedirectResponse(url="/contact?sent=1", status_code=303)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -327,11 +366,13 @@ def station_page(
         url = station_url(target, day, selected_country, today=target_today)
         return RedirectResponse(url=url, status_code=302)
 
-    return templates.TemplateResponse(
-        request,
-        "station.html",
-        build_station_page_context(station, session, selected_country, date_filter),
-    )
+    try:
+        context = build_station_page_context(station, session, selected_country, date_filter)
+    except Exception as exc:
+        logger.exception("Station page failed for %s: %s", station_id, exc)
+        raise HTTPException(status_code=500, detail="Kon deze datum niet laden") from exc
+
+    return templates.TemplateResponse(request, "station.html", context)
 
 
 @app.get("/player/{recording_id}", response_class=HTMLResponse)

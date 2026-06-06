@@ -17,6 +17,12 @@ from app.scheduler import (
     reload_scheduler,
     schedule_first_recording,
 )
+from app.site_settings import (
+    load_site_settings,
+    load_stream_requests,
+    save_site_logo,
+    save_site_settings,
+)
 from app.stations import (
     COUNTRIES,
     DEFAULT_EVENT_RETENTION_DAYS,
@@ -311,3 +317,58 @@ def _decode_data_url(data_url: str) -> bytes:
 
 def _save_logo_from_data_url(station_id: str, data_url: str) -> None:
     save_station_logo(station_id, _decode_data_url(data_url))
+
+
+@router.get("/website", response_class=HTMLResponse)
+def admin_website(request: Request):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    return templates.TemplateResponse(
+        request,
+        "admin/website.html",
+        {
+            "site": load_site_settings(),
+            "requests": load_stream_requests(),
+            "date_label": format_dutch_date(),
+            "active_nav": "website",
+            "notice": request.query_params.get("notice", ""),
+            "storage": get_storage_status(),
+        },
+    )
+
+
+@router.post("/website")
+def admin_website_save(
+    request: Request,
+    footer_text: str = Form(...),
+    footer_link_url: str = Form(default=""),
+    footer_link_label: str = Form(default=""),
+):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    save_site_settings(
+        {
+            "footer_text": footer_text.strip(),
+            "footer_link_url": footer_link_url.strip() or "/contact",
+            "footer_link_label": footer_link_label.strip() or "Stream aanvragen",
+        }
+    )
+    return RedirectResponse(url="/admin/website?notice=saved", status_code=303)
+
+
+@router.post("/website/logo")
+async def admin_website_logo(request: Request, logo: UploadFile | None = None):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    if not logo:
+        raise HTTPException(status_code=400, detail="Geen logo ontvangen")
+
+    content = await logo.read()
+    save_site_logo("site.jpg", content)
+    return RedirectResponse(url="/admin/website?notice=logo", status_code=303)

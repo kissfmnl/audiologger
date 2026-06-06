@@ -30,6 +30,8 @@
     const PAN_STEPS = 1000;
     const WAVEFORM_WAIT_SEC = 3;
     const countdownEl = document.getElementById("player-modal-countdown");
+    const countdownRing = document.getElementById("player-modal-countdown-ring");
+    const COUNTDOWN_CIRC = 326.7;
 
     const bootstrapEl = document.getElementById("peaks-bootstrap");
     if (bootstrapEl) {
@@ -337,21 +339,30 @@
     function runCountdown(seconds = WAVEFORM_WAIT_SEC) {
         return new Promise((resolve) => {
             loadingEl.classList.remove("hidden");
-            let remaining = seconds;
-            if (countdownEl) {
-                countdownEl.textContent = String(remaining);
-            }
-            const timer = setInterval(() => {
-                remaining -= 1;
+            const totalMs = seconds * 1000;
+            const started = performance.now();
+
+            const tick = () => {
+                const elapsed = performance.now() - started;
+                const remaining = Math.max(0, totalMs - elapsed);
+                const remainingSec = remaining / 1000;
+                const progress = Math.min(1, elapsed / totalMs);
+
+                if (countdownEl) {
+                    countdownEl.textContent = remainingSec.toFixed(1);
+                }
+                if (countdownRing) {
+                    countdownRing.style.strokeDashoffset = String(COUNTDOWN_CIRC * progress);
+                }
+
                 if (remaining <= 0) {
-                    clearInterval(timer);
                     resolve();
                     return;
                 }
-                if (countdownEl) {
-                    countdownEl.textContent = String(remaining);
-                }
-            }, 1000);
+                requestAnimationFrame(tick);
+            };
+
+            tick();
         });
     }
 
