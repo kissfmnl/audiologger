@@ -2,10 +2,6 @@
 
 {% block title %}{{ station.name }} — AudioLogger{% endblock %}
 
-{% block head %}
-<script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
-{% endblock %}
-
 {% block content %}
 <div class="flex flex-col lg:flex-row gap-6">
     {% include "partials/station_sidebar.html" %}
@@ -63,6 +59,7 @@
                         <button type="button"
                                 class="listen-btn px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition text-xs font-medium"
                                 data-peaks-url="{{ slot.peaks_url }}"
+                                data-audio-url="{{ slot.audio_url }}"
                                 data-title="{{ station.name }} · {{ slot.label }}">
                             Luister
                         </button>
@@ -106,7 +103,7 @@
 
             <div class="px-6 py-5">
                 <div class="relative rounded-xl overflow-hidden bg-gray-50 border border-gray-100">
-                    <div id="player-modal-waveform" class="min-h-[128px]"></div>
+                    <canvas id="player-modal-canvas" class="w-full h-32 block cursor-pointer"></canvas>
                     <div id="player-modal-loading"
                          class="absolute inset-0 flex items-center justify-center bg-gray-50/90 text-sm text-muted">
                         Wavevorm laden…
@@ -140,5 +137,6 @@
 {% endblock %}
 
 {% block scripts %}
+<script id="peaks-bootstrap" type="application/json">{{ peaks_bootstrap | tojson }}</script>
 <script src="/static/player-modal.js"></script>
 {% endblock %}

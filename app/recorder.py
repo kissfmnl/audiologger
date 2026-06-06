@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from sqlmodel import Session, select
 
 from app.database import LOGS_DIR, RECORDINGS_DIR, engine
-from app.peaks import ensure_peaks_async
+from app.peaks import ensure_peaks, ensure_peaks_async
 from app.models import Recording
 
 logger = logging.getLogger(__name__)
@@ -380,7 +380,7 @@ def record_station(station: dict, start_time: datetime | None = None) -> Recordi
                 f"Recording failed for {station['id']} at {start_time.isoformat()}: {last_error}"
             )
 
-        ensure_peaks_async(output_path)
+        ensure_peaks(output_path)
         return recording
     finally:
         shutil.rmtree(parts_dir, ignore_errors=True)

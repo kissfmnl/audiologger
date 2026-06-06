@@ -24,7 +24,7 @@ from app.database import (
 from app.archive_view import build_hour_slots
 from app.convert_recordings import convert_wav_recordings
 from app.editor import trim_recording
-from app.peaks import ensure_peaks_async, get_peaks_for_file, warm_missing_peaks
+from app.peaks import ensure_peaks_async, read_peaks_fast, warm_missing_peaks
 from app.recorder import get_partial_path_for_hour, get_partial_recording_path
 from app.scheduler import setup_scheduler, shutdown_scheduler
 from app.stations import load_stations, get_station_by_id
@@ -96,21 +96,49 @@ def build_date_tabs(station: dict, days: int = 7) -> list[dict]:
     return tabs
 
 
+def _audio_path_for_slot(station: dict, selected_date: str, slot: dict) -> Path | None:
+    recording = slot.get("recording")
+    if recording:
+        return _recording_audio_path(recording)
+    hour_start = datetime.fromisoformat(f"{selected_date}T{slot['hour']:02d}:00:00")
+    return get_partial_path_for_hour(station, hour_start)
+
+
 def _warm_hour_slot_peaks(station: dict, selected_date: str, hour_slots: list[dict]) -> None:
     for slot in hour_slots:
         if not slot.get("playable"):
             continue
-
-        recording = slot.get("recording")
-        audio_path = None
-        if recording:
-            audio_path = _recording_audio_path(recording)
-        else:
-            hour_start = datetime.fromisoformat(f"{selected_date}T{slot['hour']:02d}:00:00")
-            audio_path = get_partial_path_for_hour(station, hour_start)
-
+        audio_path = _audio_path_for_slot(station, selected_date, slot)
         if audio_path:
             ensure_peaks_async(audio_path)
+
+
+def _build_peaks_bootstrap(
+    station: dict,
+    selected_date: str,
+    hour_slots: list[dict],
+) -> dict[str, dict]:
+    bootstrap: dict[str, dict] = {}
+    for slot in hour_slots:
+        if not slot.get("playable") or not slot.get("peaks_url"):
+            continue
+
+        audio_path = _audio_path_for_slot(station, selected_date, slot)
+        if not audio_path:
+            continue
+
+        peak_data = read_peaks_fast(audio_path)
+        bootstrap[slot["peaks_url"]] = {
+            "peaks": peak_data["peaks"],
+            "duration": peak_data["duration"],
+            "ready": peak_data["ready"],
+            "audio_url": slot["audio_url"],
+            "peaks_url": slot["peaks_url"],
+            "is_live": slot["status"] == "recording",
+            "title": f"{station['name']} · {slot['label']}",
+            "recording_id": slot.get("recording_id"),
+        }
+    return bootstrap
 
 
 def build_station_page_context(
@@ -138,6 +166,7 @@ def build_station_page_context(
         "selected_date": selected_date,
         "date_tabs": build_date_tabs(station),
         "hour_slots": hour_slots,
+        "peaks_bootstrap": _build_peaks_bootstrap(station, selected_date, hour_slots),
     }
 
 
@@ -299,10 +328,11 @@ def api_peaks(recording_id: int, session: Session = Depends(get_session)):
     if not audio_path:
         raise HTTPException(status_code=404, detail="Audio file not found")
 
-    peaks, duration = get_peaks_for_file(audio_path)
+    peak_data = read_peaks_fast(audio_path)
     payload = {
-        "peaks": peaks,
-        "duration": duration,
+        "peaks": peak_data["peaks"],
+        "duration": peak_data["duration"],
+        "ready": peak_data["ready"],
         "audio_url": _recording_audio_url(recording),
         "is_live": recording.status == "recording",
         "title": f"{recording.station_name} · {recording.start_time.strftime('%d-%m-%Y %H:%M')}",
@@ -332,11 +362,12 @@ def api_peaks_hour(
     if not audio_path:
         raise HTTPException(status_code=404, detail="Audio file not found")
 
-    peaks, duration = get_peaks_for_file(audio_path)
+    peak_data = read_peaks_fast(audio_path)
     return JSONResponse(
         content={
-            "peaks": peaks,
-            "duration": duration,
+            "peaks": peak_data["peaks"],
+            "duration": peak_data["duration"],
+            "ready": peak_data["ready"],
             "audio_url": f"/recordings/live-hour/{station_id}?date={date}&hour={hour}",
             "is_live": True,
             "title": f"{station['name']} · {hour_start.strftime('%d-%m-%Y %H:%M')}",
