@@ -1,6 +1,7 @@
 import logging
 import threading
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -37,6 +38,7 @@ from app.recorder import (
     get_partial_recording_path,
 )
 from app.scheduler import setup_scheduler, shutdown_scheduler
+from app.contact_protection import HONEYPOT_FIELD, issue_contact_form, validate_contact_submission
 from app.site_settings import add_stream_request, load_site_settings
 from app.stations import load_stations, get_station_by_id
 from app.admin_auth import get_session_middleware_kwargs
@@ -283,23 +285,48 @@ def recording_to_dict(recording) -> dict:
 
 
 @app.get("/contact", response_class=HTMLResponse)
-def contact_page(request: Request, sent: int = Query(default=0)):
+def contact_page(
+    request: Request,
+    sent: int = Query(default=0),
+    error: str = Query(default=""),
+):
+    csrf_token = issue_contact_form(request)
     return templates.TemplateResponse(
         request,
         "contact.html",
-        {"sent": bool(sent)},
+        {
+            "sent": bool(sent),
+            "error": error,
+            "csrf_token": csrf_token,
+            "honeypot_field": HONEYPOT_FIELD,
+        },
     )
 
 
 @app.post("/contact")
 def contact_submit(
     request: Request,
+    csrf_token: str = Form(...),
     name: str = Form(...),
     email: str = Form(default=""),
     station_name: str = Form(...),
     stream_url: str = Form(...),
     message: str = Form(default=""),
+    company_website: str = Form(default=""),
 ):
+    blocked = validate_contact_submission(
+        request,
+        csrf_token=csrf_token,
+        honeypot=company_website,
+        name=name.strip(),
+        email=email.strip(),
+        station_name=station_name.strip(),
+        stream_url=stream_url.strip(),
+        message=message.strip(),
+    )
+    if blocked:
+        return RedirectResponse(url=f"/contact?error={quote(blocked)}", status_code=303)
+
     add_stream_request(
         {
             "name": name.strip(),

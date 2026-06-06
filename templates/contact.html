@@ -15,30 +15,45 @@
     </div>
     {% endif %}
 
+    {% if error %}
+    <div class="rounded-xl bg-red-50 border border-red-200 text-red-800 px-4 py-3 text-sm mb-6">
+        {{ error }}
+    </div>
+    {% endif %}
+
     <form method="post" action="/contact" class="bg-surface rounded-2xl shadow-card border border-gray-100 p-6 space-y-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        {# Honeypot — verborgen voor mensen, zichtbaar voor simpele bots #}
+        <div class="absolute -left-[9999px] h-0 w-0 overflow-hidden" aria-hidden="true">
+            <label for="{{ honeypot_field }}">Website</label>
+            <input type="text" name="{{ honeypot_field }}" id="{{ honeypot_field }}"
+                   tabindex="-1" autocomplete="off" value="">
+        </div>
+
         <div>
             <label class="block text-sm font-medium text-heading mb-1">Naam / organisatie</label>
-            <input type="text" name="name" required
+            <input type="text" name="name" required maxlength="500"
                    class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
         </div>
         <div>
             <label class="block text-sm font-medium text-heading mb-1">E-mail</label>
-            <input type="email" name="email"
+            <input type="email" name="email" maxlength="500"
                    class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
         </div>
         <div>
             <label class="block text-sm font-medium text-heading mb-1">Zendernaam</label>
-            <input type="text" name="station_name" required
+            <input type="text" name="station_name" required maxlength="500"
                    class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
         </div>
         <div>
             <label class="block text-sm font-medium text-heading mb-1">Stream-URL</label>
-            <input type="url" name="stream_url" required placeholder="https://..."
+            <input type="url" name="stream_url" required maxlength="500" placeholder="https://..."
                    class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
         </div>
         <div>
             <label class="block text-sm font-medium text-heading mb-1">Opmerking (optioneel)</label>
-            <textarea name="message" rows="3"
+            <textarea name="message" rows="3" maxlength="2000"
                       class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"></textarea>
         </div>
         <button type="submit"
