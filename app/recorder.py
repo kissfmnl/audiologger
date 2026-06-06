@@ -380,7 +380,7 @@ def record_station(station: dict, start_time: datetime | None = None) -> Recordi
                 f"Recording failed for {station['id']} at {start_time.isoformat()}: {last_error}"
             )
 
-        ensure_peaks(output_path)
+        ensure_peaks_async(output_path)
         return recording
     finally:
         shutil.rmtree(parts_dir, ignore_errors=True)

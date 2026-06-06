@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from sqlmodel import Session
 
 from app.database import get_recording_for_hour, get_recordings
+from app.peaks import estimate_duration
 from app.recorder import get_partial_path_for_hour, is_hour_actively_recording
 from app.stations import should_record_station
 
@@ -53,6 +54,7 @@ def build_hour_slots(
         download_url = ""
         peaks_url = ""
         recording_id = None
+        duration_seconds = 3600
 
         if status == "completed" and recording:
             playable = True
@@ -61,10 +63,12 @@ def build_hour_slots(
             download_url = audio_url
             peaks_url = f"/api/peaks/{recording.id}"
             recording_id = recording.id
+            duration_seconds = recording.duration_seconds or 3600
         elif status == "recording":
             partial = get_partial_path_for_hour(station, hour_start)
             playable = partial is not None and partial.exists() and partial.stat().st_size > 0
             if playable:
+                duration_seconds = int(estimate_duration(partial))
                 if recording:
                     audio_url = f"/recordings/live/{recording.id}"
                     download_url = audio_url
@@ -93,6 +97,7 @@ def build_hour_slots(
                 "download_url": download_url,
                 "peaks_url": peaks_url,
                 "recording_id": recording_id,
+                "duration_seconds": duration_seconds,
             }
         )
 

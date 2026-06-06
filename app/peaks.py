@@ -6,20 +6,84 @@ import struct
 import subprocess
 import tempfile
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_BARS = 1000
+WIRE_BARS = 512
 BYTES_PER_SECOND_128K = 16000
+_response_cache: dict[str, tuple[int, int, dict]] = {}
+_response_cache_lock = threading.Lock()
 
 
 def peaks_cache_path(audio_path: Path) -> Path:
     return audio_path.with_name(f"{audio_path.name}.peaks.json")
 
 
-def placeholder_peaks(bars: int = DEFAULT_BARS) -> list[float]:
+def placeholder_peaks(bars: int = WIRE_BARS) -> list[float]:
     return [round(0.07 + 0.05 * math.sin(index * 0.06), 4) for index in range(bars)]
+
+
+def downsample_peaks(peaks: list[float], bars: int = WIRE_BARS) -> list[float]:
+    if not peaks or len(peaks) <= bars:
+        return peaks
+    step = len(peaks) / bars
+    sampled: list[float] = []
+    for index in range(bars):
+        start = int(index * step)
+        end = max(start + 1, int((index + 1) * step))
+        sampled.append(round(max(peaks[start:end]), 4))
+    return sampled
+
+
+def peaks_cache_exists(path: Path) -> bool:
+    cache_path = peaks_cache_path(path)
+    if not cache_path.exists() or not path.exists():
+        return False
+    try:
+        audio_stat = path.stat()
+        cache_stat = cache_path.stat()
+        return cache_stat.st_mtime >= audio_stat.st_mtime and cache_stat.st_size > 20
+    except OSError:
+        return False
+
+
+def _wire_response(peaks: list[float], duration: float, precise: bool) -> dict:
+    return {
+        "peaks": downsample_peaks(peaks),
+        "duration": duration,
+        "ready": True,
+        "precise": precise,
+    }
+
+
+def _cached_response(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        stat = path.stat()
+        key = str(path.resolve())
+        mtime = int(stat.st_mtime)
+        size = int(stat.st_size)
+        with _response_cache_lock:
+            cached = _response_cache.get(key)
+            if cached and cached[0] == mtime and cached[1] == size:
+                return cached[2]
+    except OSError:
+        return None
+    return None
+
+
+def _store_response(path: Path, response: dict) -> None:
+    try:
+        stat = path.stat()
+        key = str(path.resolve())
+        with _response_cache_lock:
+            _response_cache[key] = (int(stat.st_mtime), int(stat.st_size), response)
+    except OSError:
+        pass
 
 
 def estimate_duration(path: Path) -> float:
@@ -254,32 +318,26 @@ def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> None:
 
 def read_peaks_fast(path: Path) -> dict:
     """Return peaks immediately; never block the request on ffmpeg."""
+    cached_response = _cached_response(path)
+    if cached_response:
+        return cached_response
+
     duration = estimate_duration(path)
     if not path.exists() or path.stat().st_size == 0:
-        return {
-            "peaks": placeholder_peaks(),
-            "duration": duration,
-            "ready": True,
-            "precise": False,
-        }
+        response = _wire_response(placeholder_peaks(), duration, False)
+        _store_response(path, response)
+        return response
 
     cached = load_cached_peaks(path)
     if cached:
         peaks, cached_duration = cached
-        return {
-            "peaks": peaks,
-            "duration": cached_duration,
-            "ready": True,
-            "precise": True,
-        }
+        response = _wire_response(peaks, cached_duration, True)
+        _store_response(path, response)
+        return response
 
     ensure_peaks_async(path)
-    return {
-        "peaks": placeholder_peaks(),
-        "duration": duration,
-        "ready": True,
-        "precise": False,
-    }
+    response = _wire_response(placeholder_peaks(), duration, False)
+    return response
 
 
 def ensure_peaks(path: Path) -> None:
@@ -290,17 +348,27 @@ def ensure_peaks(path: Path) -> None:
     peaks, duration = _decode_peaks(path, DEFAULT_BARS)
     if peaks:
         save_cached_peaks(path, peaks, duration)
+        _store_response(path, _wire_response(peaks, duration, True))
 
 
 def ensure_peaks_async(path: Path) -> None:
     threading.Thread(target=ensure_peaks, args=(path,), daemon=True).start()
 
 
-def warm_missing_peaks(recordings_dir: Path) -> None:
-    for audio_path in sorted(recordings_dir.glob("*.mp3")):
-        if load_cached_peaks(audio_path):
-            continue
+def warm_missing_peaks(recordings_dir: Path, workers: int = 3) -> None:
+    pending = [
+        audio_path
+        for audio_path in sorted(recordings_dir.glob("*.mp3"))
+        if not load_cached_peaks(audio_path)
+    ]
+    if not pending:
+        return
+
+    def _warm(audio_path: Path) -> None:
         try:
             ensure_peaks(audio_path)
         except Exception:
             logger.exception("Failed to warm peaks for %s", audio_path.name)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        list(executor.map(_warm, pending))

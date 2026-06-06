@@ -24,7 +24,13 @@ from app.database import (
 from app.archive_view import build_hour_slots
 from app.convert_recordings import convert_wav_recordings
 from app.editor import trim_recording
-from app.peaks import ensure_peaks_async, read_peaks_fast, warm_missing_peaks
+from app.peaks import (
+    ensure_peaks_async,
+    estimate_duration,
+    peaks_cache_exists,
+    read_peaks_fast,
+    warm_missing_peaks,
+)
 from app.recorder import get_partial_path_for_hour, get_partial_recording_path
 from app.scheduler import setup_scheduler, shutdown_scheduler
 from app.stations import load_stations, get_station_by_id
@@ -138,26 +144,31 @@ def _warm_hour_slot_peaks(station: dict, selected_date: str, hour_slots: list[di
             ensure_peaks_async(audio_path)
 
 
+def _slot_duration(slot: dict, audio_path: Path | None) -> float:
+    recording = slot.get("recording")
+    if recording and recording.duration_seconds:
+        return float(recording.duration_seconds)
+    if audio_path and audio_path.exists():
+        return estimate_duration(audio_path)
+    return 3600.0
+
+
 def _build_peaks_bootstrap(
     station: dict,
     selected_date: str,
     hour_slots: list[dict],
 ) -> dict[str, dict]:
+    """Metadata only — peaks render instantly client-side, then upgrade via API."""
     bootstrap: dict[str, dict] = {}
     for slot in hour_slots:
         if not slot.get("playable") or not slot.get("peaks_url"):
             continue
 
         audio_path = _audio_path_for_slot(station, selected_date, slot)
-        if not audio_path:
-            continue
-
-        peak_data = read_peaks_fast(audio_path)
         bootstrap[slot["peaks_url"]] = {
-            "peaks": peak_data["peaks"],
-            "duration": peak_data["duration"],
-            "ready": peak_data["ready"],
-            "precise": peak_data["precise"],
+            "duration": _slot_duration(slot, audio_path),
+            "ready": True,
+            "precise": peaks_cache_exists(audio_path) if audio_path else False,
             "audio_url": slot["audio_url"],
             "peaks_url": slot["peaks_url"],
             "is_live": slot["status"] == "recording",
