@@ -2,11 +2,12 @@ import json
 import logging
 import struct
 import subprocess
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BARS = 1800
+DEFAULT_BARS = 1200
 
 
 def peaks_cache_path(audio_path: Path) -> Path:
@@ -28,7 +29,7 @@ def get_audio_duration(path: Path) -> float:
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=15,
             check=False,
         )
         if result.returncode == 0 and result.stdout.strip():
@@ -39,18 +40,23 @@ def get_audio_duration(path: Path) -> float:
 
 
 def _decode_peaks(path: Path, bars: int) -> tuple[list[float], float]:
-    duration = get_audio_duration(path)
-    sample_rate = min(max(bars * 2, 2000), 8000)
+    duration = max(get_audio_duration(path), 1.0)
+    sample_rate = 100
+    samples_per_bar = max(1, int(duration * sample_rate / bars))
 
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             [
                 "ffmpeg",
+                "-threads",
+                "0",
+                "-nostdin",
                 "-hide_banner",
                 "-loglevel",
                 "error",
                 "-i",
                 str(path),
+                "-vn",
                 "-ac",
                 "1",
                 "-ar",
@@ -59,36 +65,55 @@ def _decode_peaks(path: Path, bars: int) -> tuple[list[float], float]:
                 "s16le",
                 "-",
             ],
-            capture_output=True,
-            timeout=180,
-            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
         )
-    except (subprocess.TimeoutExpired, OSError) as exc:
+    except OSError as exc:
         logger.warning("ffmpeg peak decode failed for %s: %s", path, exc)
         return [], duration
 
-    if result.returncode != 0 or not result.stdout:
-        return [], duration
-
-    sample_count = len(result.stdout) // 2
-    if sample_count == 0:
-        return [], duration
-
-    samples = struct.unpack(f"<{sample_count}h", result.stdout)
-    chunk_size = max(1, sample_count // bars)
     peaks: list[float] = []
+    bar_max = 0
+    samples_in_bar = 0
+    buffer = b""
 
-    for index in range(0, sample_count, chunk_size):
-        chunk = samples[index : index + chunk_size]
-        if chunk:
-            peaks.append(max(abs(sample) for sample in chunk) / 32768.0)
+    assert process.stdout is not None
+    while len(peaks) < bars:
+        chunk = process.stdout.read(131072)
+        if not chunk:
+            break
+        buffer += chunk
 
-    peaks = peaks[:bars]
+        offset = 0
+        while offset + 2 <= len(buffer) and len(peaks) < bars:
+            sample = struct.unpack_from("<h", buffer, offset)[0]
+            offset += 2
+            bar_max = max(bar_max, abs(sample))
+            samples_in_bar += 1
+            if samples_in_bar >= samples_per_bar:
+                peaks.append(bar_max / 32768.0)
+                bar_max = 0
+                samples_in_bar = 0
+
+        buffer = buffer[offset:]
+
+    if bar_max > 0 and len(peaks) < bars:
+        peaks.append(bar_max / 32768.0)
+
+    try:
+        process.terminate()
+        process.wait(timeout=3)
+    except (subprocess.TimeoutExpired, OSError):
+        process.kill()
+
     max_peak = max(peaks) if peaks else 0.0
     if max_peak > 0:
         peaks = [round(peak / max_peak, 4) for peak in peaks]
 
-    return peaks, duration
+    while len(peaks) < bars:
+        peaks.append(0.0)
+
+    return peaks[:bars], duration
 
 
 def load_cached_peaks(path: Path) -> tuple[list[float], float] | None:
@@ -121,7 +146,8 @@ def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> None:
                     "peaks": peaks,
                     "source_mtime": path.stat().st_mtime,
                     "source_size": path.stat().st_size,
-                }
+                },
+                separators=(",", ":"),
             ),
             encoding="utf-8",
         )
@@ -138,7 +164,30 @@ def get_peaks_for_file(path: Path, bars: int = DEFAULT_BARS) -> tuple[list[float
         return cached
 
     peaks, duration = _decode_peaks(path, bars)
-    if peaks and path.stat().st_size > 500_000:
+    if peaks:
         save_cached_peaks(path, peaks, duration)
 
     return peaks, duration
+
+
+def ensure_peaks(path: Path) -> None:
+    if not path.exists() or path.stat().st_size == 0:
+        return
+    if load_cached_peaks(path):
+        return
+    peaks, duration = _decode_peaks(path)
+    if peaks:
+        save_cached_peaks(path, peaks, duration)
+
+
+def ensure_peaks_async(path: Path) -> None:
+    threading.Thread(target=ensure_peaks, args=(path,), daemon=True).start()
+
+
+def warm_missing_peaks(recordings_dir: Path) -> None:
+    for audio_path in sorted(recordings_dir.glob("*.mp3")):
+        if not peaks_cache_path(audio_path).exists():
+            try:
+                ensure_peaks(audio_path)
+            except Exception:
+                logger.exception("Failed to warm peaks for %s", audio_path.name)

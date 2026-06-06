@@ -6,7 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -24,7 +24,7 @@ from app.database import (
 from app.archive_view import build_hour_slots
 from app.convert_recordings import convert_wav_recordings
 from app.editor import trim_recording
-from app.peaks import get_peaks_for_file
+from app.peaks import ensure_peaks_async, get_peaks_for_file, warm_missing_peaks
 from app.recorder import get_partial_path_for_hour, get_partial_recording_path
 from app.scheduler import setup_scheduler, shutdown_scheduler
 from app.stations import load_stations, get_station_by_id
@@ -96,6 +96,23 @@ def build_date_tabs(station: dict, days: int = 7) -> list[dict]:
     return tabs
 
 
+def _warm_hour_slot_peaks(station: dict, selected_date: str, hour_slots: list[dict]) -> None:
+    for slot in hour_slots:
+        if not slot.get("playable"):
+            continue
+
+        recording = slot.get("recording")
+        audio_path = None
+        if recording:
+            audio_path = _recording_audio_path(recording)
+        else:
+            hour_start = datetime.fromisoformat(f"{selected_date}T{slot['hour']:02d}:00:00")
+            audio_path = get_partial_path_for_hour(station, hour_start)
+
+        if audio_path:
+            ensure_peaks_async(audio_path)
+
+
 def build_station_page_context(
     station: dict,
     session: Session,
@@ -111,6 +128,7 @@ def build_station_page_context(
     selected_date = date_filter or today.isoformat()
 
     hour_slots = build_hour_slots(station, selected_date, session)
+    _warm_hour_slot_peaks(station, selected_date, hour_slots)
 
     return {
         "station": station,
@@ -136,11 +154,19 @@ def _run_recording_conversion() -> None:
         logger.exception("Background recording conversion failed")
 
 
+def _run_peaks_warmup() -> None:
+    try:
+        warm_missing_peaks(RECORDINGS_DIR)
+    except Exception:
+        logger.exception("Background peaks warmup failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     setup_scheduler()
     threading.Thread(target=_run_recording_conversion, daemon=True).start()
+    threading.Thread(target=_run_peaks_warmup, daemon=True).start()
     logger.info("AudioLogger started")
     yield
     shutdown_scheduler()
@@ -274,7 +300,7 @@ def api_peaks(recording_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Audio file not found")
 
     peaks, duration = get_peaks_for_file(audio_path)
-    return {
+    payload = {
         "peaks": peaks,
         "duration": duration,
         "audio_url": _recording_audio_url(recording),
@@ -282,6 +308,12 @@ def api_peaks(recording_id: int, session: Session = Depends(get_session)):
         "title": f"{recording.station_name} · {recording.start_time.strftime('%d-%m-%Y %H:%M')}",
         "recording_id": recording.id,
     }
+    cache_header = (
+        {"Cache-Control": "no-store"}
+        if recording.status == "recording"
+        else {"Cache-Control": "public, max-age=86400"}
+    )
+    return JSONResponse(content=payload, headers=cache_header)
 
 
 @app.get("/api/peaks/hour/{station_id}")
@@ -301,14 +333,17 @@ def api_peaks_hour(
         raise HTTPException(status_code=404, detail="Audio file not found")
 
     peaks, duration = get_peaks_for_file(audio_path)
-    return {
-        "peaks": peaks,
-        "duration": duration,
-        "audio_url": f"/recordings/live-hour/{station_id}?date={date}&hour={hour}",
-        "is_live": True,
-        "title": f"{station['name']} · {hour_start.strftime('%d-%m-%Y %H:%M')}",
-        "recording_id": None,
-    }
+    return JSONResponse(
+        content={
+            "peaks": peaks,
+            "duration": duration,
+            "audio_url": f"/recordings/live-hour/{station_id}?date={date}&hour={hour}",
+            "is_live": True,
+            "title": f"{station['name']} · {hour_start.strftime('%d-%m-%Y %H:%M')}",
+            "recording_id": None,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/recordings")

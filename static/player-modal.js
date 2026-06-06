@@ -19,8 +19,10 @@
     }
 
     const peaksCache = new Map();
+    const peaksInflight = new Map();
     let wavesurfer = null;
     let activeButton = null;
+    let activeAudio = null;
 
     function formatTime(seconds) {
         const total = Math.max(0, Math.floor(seconds || 0));
@@ -38,12 +40,29 @@
             wavesurfer.destroy();
             wavesurfer = null;
         }
+        if (activeAudio) {
+            activeAudio.pause();
+            activeAudio.removeAttribute("src");
+            activeAudio.load();
+            activeAudio = null;
+        }
         waveformEl.innerHTML = "";
     }
 
     function setPlayingState(playing) {
         playIcon.classList.toggle("hidden", playing);
         pauseIcon.classList.toggle("hidden", !playing);
+    }
+
+    function revealControls(duration) {
+        loadingEl.classList.add("hidden");
+        controlsEl.classList.remove("opacity-40", "pointer-events-none");
+        if (duration) {
+            totalTimeEl.textContent = formatTime(duration);
+        }
+        if (activeButton) {
+            activeButton.disabled = false;
+        }
     }
 
     function closeModal() {
@@ -60,22 +79,42 @@
         if (peaksCache.has(url)) {
             return peaksCache.get(url);
         }
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error("Wavevorm laden mislukt");
+        if (peaksInflight.has(url)) {
+            return peaksInflight.get(url);
         }
-        const data = await response.json();
-        if (!data.is_live) {
-            peaksCache.set(url, data);
-        }
-        return data;
+
+        const request = fetch(url)
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error("Wavevorm laden mislukt");
+                }
+                return response.json();
+            })
+            .then((data) => {
+                if (!data.is_live) {
+                    peaksCache.set(url, data);
+                }
+                return data;
+            })
+            .finally(() => {
+                peaksInflight.delete(url);
+            });
+
+        peaksInflight.set(url, request);
+        return request;
     }
 
     function prefetchPeaks(url) {
-        if (!url || peaksCache.has(url)) {
+        if (!url || peaksCache.has(url) || peaksInflight.has(url)) {
             return;
         }
         fetchPeaks(url).catch(() => {});
+    }
+
+    function prefetchAllVisible() {
+        document.querySelectorAll(".listen-btn").forEach((button) => {
+            prefetchPeaks(button.dataset.peaksUrl);
+        });
     }
 
     async function openPlayer(button) {
@@ -98,6 +137,7 @@
         totalTimeEl.textContent = "0:00";
         currentTimeEl.textContent = "0:00";
         trimLink.classList.add("hidden");
+        setPlayingState(false);
 
         try {
             const data = await fetchPeaks(peaksUrl);
@@ -109,8 +149,13 @@
                 trimLink.classList.remove("hidden");
             }
 
+            activeAudio = new Audio(data.audio_url);
+            activeAudio.preload = "auto";
+            activeAudio.crossOrigin = "anonymous";
+
             wavesurfer = WaveSurfer.create({
                 container: waveformEl,
+                media: activeAudio,
                 waveColor: "#D1D5DB",
                 progressColor: "#7C3AED",
                 cursorColor: "#6D28D9",
@@ -123,21 +168,25 @@
                 interact: true,
             });
 
-            wavesurfer.on("ready", () => {
-                loadingEl.classList.add("hidden");
-                controlsEl.classList.remove("opacity-40", "pointer-events-none");
-                totalTimeEl.textContent = formatTime(wavesurfer.getDuration());
-                if (activeButton) {
-                    activeButton.disabled = false;
+            let revealed = false;
+            const showWaveform = () => {
+                if (revealed) {
+                    return;
                 }
+                revealed = true;
+                revealControls(data.duration);
+            };
+
+            wavesurfer.on("redraw", showWaveform);
+            wavesurfer.on("decode", showWaveform);
+
+            wavesurfer.on("ready", () => {
+                showWaveform();
+                totalTimeEl.textContent = formatTime(wavesurfer.getDuration() || data.duration);
             });
 
-            wavesurfer.on("audioprocess", () => {
-                currentTimeEl.textContent = formatTime(wavesurfer.getCurrentTime());
-            });
-
-            wavesurfer.on("seeking", () => {
-                currentTimeEl.textContent = formatTime(wavesurfer.getCurrentTime());
+            wavesurfer.on("timeupdate", (time) => {
+                currentTimeEl.textContent = formatTime(time);
             });
 
             wavesurfer.on("play", () => setPlayingState(true));
@@ -146,25 +195,21 @@
 
             wavesurfer.on("error", () => {
                 subtitleEl.textContent = "Afspelen mislukt";
-                loadingEl.classList.add("hidden");
-                controlsEl.classList.remove("opacity-40", "pointer-events-none");
-                if (activeButton) {
-                    activeButton.disabled = false;
-                }
+                showWaveform();
             });
 
-            if (data.peaks && data.peaks.length > 0) {
-                await wavesurfer.load(data.audio_url, [data.peaks], data.duration);
-            } else {
-                await wavesurfer.load(data.audio_url);
-            }
+            const loadPromise = data.peaks && data.peaks.length > 0
+                ? wavesurfer.load(data.audio_url, [data.peaks], data.duration)
+                : wavesurfer.load(data.audio_url);
+
+            loadPromise.catch(() => {
+                subtitleEl.textContent = "Afspelen mislukt";
+            });
+
+            requestAnimationFrame(showWaveform);
         } catch (error) {
             subtitleEl.textContent = error.message || "Laden mislukt";
-            loadingEl.classList.add("hidden");
-            controlsEl.classList.remove("opacity-40", "pointer-events-none");
-            if (activeButton) {
-                activeButton.disabled = false;
-            }
+            revealControls();
         }
     }
 
@@ -172,6 +217,8 @@
         button.addEventListener("click", () => openPlayer(button));
         button.addEventListener("mouseenter", () => prefetchPeaks(button.dataset.peaksUrl), { once: true });
     });
+
+    prefetchAllVisible();
 
     playBtn.addEventListener("click", () => {
         if (wavesurfer) {
