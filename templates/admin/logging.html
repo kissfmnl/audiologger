@@ -24,7 +24,19 @@
     <p class="text-xs font-medium text-violet-400 mb-1">Radio</p>
     <h1 class="text-xl font-bold text-heading tracking-tight">Opname-status</h1>
     <p class="text-xs text-slate-500 mt-1">{{ date_label }} · welke zenders worden nu gelogd</p>
+    <form method="post" action="/admin/recovery" class="mt-3">
+        <button type="submit" class="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-medium hover:bg-violet-700 transition">
+            Harde refresh opnames nu
+        </button>
+        <span class="text-[11px] text-slate-400 ml-2">Automatisch elk uur om :02 · volgende om {{ next_recovery }}</span>
+    </form>
 </div>
+
+{% if notice == 'recovery' %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-violet-200 bg-violet-50 text-xs text-violet-800">
+    Harde refresh gestart — alle zenders zonder lopende opname worden opnieuw ingepland voor het huidige uur.
+</div>
+{% endif %}
 
 {% if storage.on_railway and not storage.persist_ok %}
 <div class="mb-5 pl-4 py-3 rounded-lg border border-red-300 bg-red-50 text-xs text-red-800">

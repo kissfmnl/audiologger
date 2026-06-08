@@ -10,6 +10,7 @@ from app.database import BASE_DIR, get_session, get_storage_status
 from app.logging_status import get_logging_overview
 from app.scheduler import (
     cancel_first_recording,
+    hard_refresh_recordings,
     reload_scheduler,
     schedule_first_recording,
 )
@@ -94,6 +95,16 @@ def admin_logout(request: Request):
     return RedirectResponse(url="/admin/login", status_code=303)
 
 
+@router.post("/recovery")
+def admin_recovery(request: Request):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    hard_refresh_recordings()
+    return RedirectResponse(url="/admin/logging?notice=recovery", status_code=303)
+
+
 @router.get("/logging", response_class=HTMLResponse)
 def admin_logging_status(request: Request):
     redirect = admin_redirect_if_needed(request)
@@ -101,6 +112,16 @@ def admin_logging_status(request: Request):
         return redirect
 
     overview = get_logging_overview()
+    recovery_job = None
+    from app.scheduler import scheduler
+
+    if scheduler.running:
+        recovery_job = scheduler.get_job("hourly_recording_recovery")
+
+    next_recovery = "—"
+    if recovery_job and recovery_job.next_run_time:
+        next_recovery = recovery_job.next_run_time.strftime("%H:%M")
+
     return templates.TemplateResponse(
         request,
         "admin/logging.html",
@@ -109,6 +130,8 @@ def admin_logging_status(request: Request):
             "date_label": format_dutch_date(),
             "active_nav": "logging",
             "storage": get_storage_status(),
+            "next_recovery": next_recovery,
+            "notice": request.query_params.get("notice", ""),
         },
     )
 

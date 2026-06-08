@@ -12,9 +12,9 @@ from app.database import engine
 from app.models import Recording
 from app.recorder import (
     finalize_all_stale_recordings,
-    get_partial_path_for_hour,
     has_completed_recording,
     invalidate_short_completed_recordings,
+    is_hour_actively_recording,
     record_station,
 )
 from app.retention import cleanup_expired_recordings
@@ -155,6 +155,84 @@ def schedule_first_recording(station_id: str) -> datetime | None:
     return run_at.astimezone(tz).replace(tzinfo=None)
 
 
+def _queue_record(
+    station_id: str,
+    start_time: datetime,
+    delay_seconds: int = 0,
+    job_id: str | None = None,
+) -> None:
+    if not scheduler.running:
+        return
+    station = get_station_by_id(station_id)
+    if not station:
+        return
+    tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
+    run_at = datetime.now(tz) + timedelta(seconds=delay_seconds)
+    if job_id is None:
+        job_id = f"queue_{station_id}_{start_time.strftime('%Y%m%d%H')}"
+    scheduler.add_job(
+        scheduled_record,
+        trigger=DateTrigger(run_date=run_at),
+        args=[station_id],
+        kwargs={"force_start_time": start_time.isoformat(), "attempt": 0},
+        id=job_id,
+        replace_existing=True,
+    )
+
+
+def ensure_current_hour_recordings() -> int:
+    """Start opname voor het lopende uur als die nog ontbreekt."""
+    if not scheduler.running:
+        return 0
+
+    queued = 0
+    for station in load_stations(active_only=True):
+        if not should_record_station(station):
+            continue
+
+        tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
+        now = datetime.now(tz)
+        hour_start = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
+
+        if has_completed_recording(station["id"], hour_start):
+            continue
+        if is_hour_actively_recording(station, hour_start, now):
+            continue
+
+        delay = 5 + abs(hash(station["id"])) % 90
+        _queue_record(
+            station["id"],
+            hour_start,
+            delay_seconds=delay,
+            job_id=f"ensure_{station['id']}_{hour_start.strftime('%Y%m%d%H')}",
+        )
+        logger.info(
+            "Queued ensure recording for %s hour %s in %ss",
+            station["id"],
+            hour_start.strftime("%H:%M"),
+            delay,
+        )
+        queued += 1
+    return queued
+
+
+def hard_refresh_recordings() -> dict:
+    """Finalize stale state, retry recent failures, start missing current-hour recordings."""
+    logger.info("Hard refresh: recording recovery starting")
+    finalized = finalize_all_stale_recordings()
+    invalidated = invalidate_short_completed_recordings()
+    retry_queued = retry_todays_failed_recordings(max_hours_back=2)
+    ensured = ensure_current_hour_recordings()
+    summary = {
+        "finalized": finalized,
+        "invalidated": invalidated,
+        "retry_queued": retry_queued,
+        "ensured": ensured,
+    }
+    logger.info("Hard refresh complete: %s", summary)
+    return summary
+
+
 def reload_scheduler() -> BackgroundScheduler:
     stations = load_stations(active_only=True)
 
@@ -212,17 +290,25 @@ def reload_scheduler() -> BackgroundScheduler:
         replace_existing=True,
     )
 
+    scheduler.add_job(
+        hard_refresh_recordings,
+        trigger=CronTrigger(minute=2, timezone=ZoneInfo("Europe/Amsterdam")),
+        id="hourly_recording_recovery",
+        replace_existing=True,
+    )
+
     return scheduler
 
 
-def retry_todays_failed_recordings() -> None:
+def retry_todays_failed_recordings(max_hours_back: int = 2) -> int:
     if not scheduler.running:
-        return
+        return 0
 
     stations_by_id = {station["id"]: station for station in load_stations(active_only=True)}
     with Session(engine) as session:
         failed = session.exec(select(Recording).where(Recording.status == "failed")).all()
 
+    queued = 0
     for recording in failed:
         station = stations_by_id.get(recording.station_id)
         if not station:
@@ -235,41 +321,32 @@ def retry_todays_failed_recordings() -> None:
         if recording.start_time.date() != now.date():
             continue
 
-        hour_end = recording.start_time.replace(tzinfo=tz) + timedelta(hours=1)
-        has_partial = get_partial_path_for_hour(station, recording.start_time) is not None
-        if now >= hour_end + timedelta(minutes=15) and not has_partial:
+        current_hour = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
+        earliest = current_hour - timedelta(hours=max_hours_back)
+        if recording.start_time < earliest:
             continue
 
-        run_at = now + timedelta(seconds=45 + abs(hash(recording.station_id)) % 180)
-        job_id = f"retry_startup_{recording.station_id}_{recording.start_time.strftime('%Y%m%d%H')}"
-        scheduler.add_job(
-            scheduled_record,
-            trigger=DateTrigger(run_date=run_at),
-            args=[recording.station_id],
-            kwargs={
-                "force_start_time": recording.start_time.isoformat(),
-                "attempt": 0,
-            },
-            id=job_id,
-            replace_existing=True,
+        delay = 15 + abs(hash(recording.station_id)) % 120
+        job_id = f"retry_failed_{recording.station_id}_{recording.start_time.strftime('%Y%m%d%H')}"
+        _queue_record(
+            recording.station_id,
+            recording.start_time,
+            delay_seconds=delay,
+            job_id=job_id,
         )
         logger.info(
-            "Queued retry for failed %s hour %s at %s",
+            "Queued retry for failed %s hour %s in %ss",
             recording.station_id,
             recording.start_time.strftime("%H:%M"),
-            run_at.strftime("%H:%M:%S"),
+            delay,
         )
+        queued += 1
+    return queued
 
 
 def setup_scheduler() -> BackgroundScheduler:
     scheduler_result = reload_scheduler()
-    invalidated = invalidate_short_completed_recordings()
-    if invalidated:
-        logger.info("Invalidated %s short completed recordings on startup", invalidated)
-    retry_todays_failed_recordings()
-    finalized = finalize_all_stale_recordings()
-    if finalized:
-        logger.info("Finalized %s stale recordings on startup", finalized)
+    hard_refresh_recordings()
     cleanup_expired_recordings()
     return scheduler_result
 
