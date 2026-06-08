@@ -22,7 +22,7 @@ from app.stations import get_station_by_id, load_stations, should_record_station
 
 logger = logging.getLogger(__name__)
 scheduler = BackgroundScheduler()
-_recording_executor = ThreadPoolExecutor(max_workers=32, thread_name_prefix="record")
+_recording_executor = ThreadPoolExecutor(max_workers=40, thread_name_prefix="record")
 
 RETRY_DELAYS_SECONDS = (90, 180, 300)
 

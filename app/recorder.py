@@ -21,8 +21,8 @@ RECORDING_DURATION_SECONDS = 3600
 MP3_BITRATE = "128k"
 BYTES_PER_SECOND_128K = 16000
 RECORDING_USER_AGENT = "Mozilla/5.0 (compatible; AudioLogger/1.0)"
-# Elke zender mag tegelijk loggen — anders wachten jobs een uur en missen ze hun slot.
-MAX_CONCURRENT_RECORDINGS = max(4, int(os.environ.get("MAX_CONCURRENT_RECORDINGS", "10")))
+# 20+ zenders loggen elk heel uur tegelijk — elk slot blijft ~60 min bezet.
+MAX_CONCURRENT_RECORDINGS = max(4, int(os.environ.get("MAX_CONCURRENT_RECORDINGS", "24")))
 _recording_slots = threading.BoundedSemaphore(MAX_CONCURRENT_RECORDINGS)
 
 MIN_SEGMENT_BYTES = 50_000
