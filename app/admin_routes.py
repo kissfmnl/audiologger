@@ -8,6 +8,12 @@ from sqlmodel import Session
 from app.admin_auth import is_authenticated, login, logout
 from app.database import BASE_DIR, get_session, get_storage_status
 from app.logging_status import get_logging_overview
+from app.retention import (
+    cleanup_expired_recordings,
+    get_archive_stats,
+    preview_purge,
+    purge_recordings,
+)
 from app.scheduler import (
     cancel_first_recording,
     hard_refresh_recordings,
@@ -133,6 +139,100 @@ def admin_logging_status(request: Request):
             "next_recovery": next_recovery,
             "notice": request.query_params.get("notice", ""),
         },
+    )
+
+
+@router.get("/storage", response_class=HTMLResponse)
+def admin_storage(request: Request):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    stats = get_archive_stats()
+    return templates.TemplateResponse(
+        request,
+        "admin/storage.html",
+        {
+            "stats": stats,
+            "storage": get_storage_status(),
+            "preview_except_today": preview_purge("except_today"),
+            "date_label": format_dutch_date(),
+            "active_nav": "storage",
+            "notice": request.query_params.get("notice", ""),
+            "purge_deleted": request.query_params.get("deleted", ""),
+            "purge_freed_mb": request.query_params.get("freed", ""),
+            "error_message": request.query_params.get("error", ""),
+        },
+    )
+
+
+@router.post("/storage/purge")
+def admin_storage_purge(
+    request: Request,
+    mode: str = Form(...),
+    confirm: str = Form(...),
+    older_than_days: str = Form(default="7"),
+    before_date: str = Form(default=""),
+):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    if confirm.strip().upper() != "VERWIJDEREN":
+        return RedirectResponse(
+            url="/admin/storage?notice=error&error=Bevestiging%20moet%20VERWIJDEREN%20zijn",
+            status_code=303,
+        )
+
+    allowed = {"all", "except_today", "older_than_days", "before_date"}
+    if mode not in allowed:
+        return RedirectResponse(
+            url="/admin/storage?notice=error&error=Ongeldige%20modus",
+            status_code=303,
+        )
+
+    days = None
+    if mode == "older_than_days":
+        try:
+            days = max(1, int(older_than_days))
+        except ValueError:
+            return RedirectResponse(
+                url="/admin/storage?notice=error&error=Ongeldig%20aantal%20dagen",
+                status_code=303,
+            )
+
+    before = None
+    if mode == "before_date":
+        if not before_date.strip():
+            return RedirectResponse(
+                url="/admin/storage?notice=error&error=Kies%20een%20datum",
+                status_code=303,
+            )
+        try:
+            before = datetime.fromisoformat(before_date).date()
+        except ValueError:
+            return RedirectResponse(
+                url="/admin/storage?notice=error&error=Ongeldige%20datum",
+                status_code=303,
+            )
+
+    result = purge_recordings(mode, older_than_days=days, before_date=before)
+    return RedirectResponse(
+        url=f"/admin/storage?notice=purged&deleted={result['deleted']}&freed={result['freed_mb']}",
+        status_code=303,
+    )
+
+
+@router.post("/storage/retention")
+def admin_storage_retention(request: Request):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    result = cleanup_expired_recordings()
+    return RedirectResponse(
+        url=f"/admin/storage?notice=retention&deleted={result['deleted']}",
+        status_code=303,
     )
 
 

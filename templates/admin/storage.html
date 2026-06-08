@@ -1,0 +1,124 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Opslag — AudioLogger{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <p class="text-xs font-medium text-violet-400 mb-1">Archief</p>
+    <h1 class="text-xl font-bold text-heading tracking-tight">Opslag &amp; opnames</h1>
+    <p class="text-xs text-slate-500 mt-1">{{ date_label }}</p>
+</div>
+
+{% if notice == 'purged' %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-emerald-200 bg-emerald-50 text-xs text-emerald-800">
+    {{ purge_deleted }} opname(s) verwijderd ({{ purge_freed_mb }} MB vrijgemaakt).
+</div>
+{% elif notice == 'retention' %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-violet-200 bg-violet-50 text-xs text-violet-800">
+    Automatische bewaring uitgevoerd: {{ purge_deleted }} opname(s) verwijderd.
+</div>
+{% elif notice == 'error' %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-red-200 bg-red-50 text-xs text-red-800">
+    {{ error_message }}
+</div>
+{% endif %}
+
+{% if storage.usage_percent is not none %}
+<div class="mb-6 rounded-xl border border-violet-100 bg-surface shadow-card p-5">
+    <div class="flex items-center justify-between gap-3 mb-2">
+        <p class="text-sm font-semibold text-heading">Schijf volume</p>
+        <p class="text-sm font-mono text-violet-600">{{ storage.usage_percent }}% vol</p>
+    </div>
+    <div class="h-3 rounded-full bg-violet-100 overflow-hidden">
+        <div class="h-full rounded-full {% if storage.usage_percent >= 90 %}bg-red-500{% elif storage.usage_percent >= 75 %}bg-amber-500{% else %}bg-violet-600{% endif %}"
+             style="width: {{ storage.usage_percent }}%"></div>
+    </div>
+    <p class="text-xs text-slate-500 mt-2">
+        {{ storage.disk_used_gb }} / {{ storage.disk_total_gb }} GB gebruikt ·
+        {{ storage.disk_free_gb }} GB vrij · opnames op schijf {{ storage.recordings_gb }} GB
+    </p>
+</div>
+{% endif %}
+
+<div class="grid sm:grid-cols-3 gap-3 mb-6">
+    <div class="rounded-xl border border-violet-100 bg-surface p-4 text-center shadow-card">
+        <p class="text-2xl font-bold text-heading">{{ stats.total }}</p>
+        <p class="text-[11px] text-slate-500 mt-0.5">Opnames in database</p>
+    </div>
+    <div class="rounded-xl border border-violet-100 bg-surface p-4 text-center shadow-card">
+        <p class="text-2xl font-bold text-heading">{{ stats.total_mb }} MB</p>
+        <p class="text-[11px] text-slate-500 mt-0.5">Geschatte audiomassa</p>
+    </div>
+    <div class="rounded-xl border border-violet-100 bg-surface p-4 text-center shadow-card">
+        <p class="text-2xl font-bold text-heading">{{ stats.older_than_today }}</p>
+        <p class="text-[11px] text-slate-500 mt-0.5">Ouder dan vandaag</p>
+    </div>
+</div>
+
+<p class="text-xs text-slate-500 mb-6">
+    Oudste opname: <span class="font-mono text-slate-600">{{ stats.oldest }}</span> ·
+    Nieuwste: <span class="font-mono text-slate-600">{{ stats.newest }}</span> ·
+    Vandaag: <span class="font-mono text-slate-600">{{ stats.today_count }}</span>
+</p>
+
+<section class="rounded-xl border border-red-200 bg-red-50/40 shadow-card p-5 mb-6">
+    <h2 class="text-sm font-semibold text-red-900 mb-1">Opnames verwijderen</h2>
+    <p class="text-xs text-red-800/80 mb-4">Verwijdert MP3-bestanden, logs, peaks en database-regels. Niet ongedaan te maken.</p>
+
+    <form method="post" action="/admin/storage/purge" class="space-y-4">
+        <div class="space-y-2">
+            <label class="flex items-start gap-2 cursor-pointer">
+                <input type="radio" name="mode" value="except_today" checked class="mt-0.5 accent-violet-600">
+                <span class="text-xs">
+                    <span class="font-medium text-heading">Alles behalve vandaag</span>
+                    <span class="text-slate-500 block">Verwijdert {{ preview_except_today.count }} opname(s) · ~{{ preview_except_today.size_mb }} MB</span>
+                </span>
+            </label>
+            <label class="flex items-start gap-2 cursor-pointer">
+                <input type="radio" name="mode" value="older_than_days" class="mt-0.5 accent-violet-600">
+                <span class="text-xs">
+                    <span class="font-medium text-heading">Ouder dan … dagen</span>
+                    <input type="number" name="older_than_days" min="1" max="3650" value="7"
+                           class="ml-1 w-16 px-2 py-0.5 rounded border border-violet-200 text-xs font-mono">
+                    <span class="text-slate-500 block">Standaard bewaartermijn per zender is ook 7 dagen</span>
+                </span>
+            </label>
+            <label class="flex items-start gap-2 cursor-pointer">
+                <input type="radio" name="mode" value="before_date" class="mt-0.5 accent-violet-600">
+                <span class="text-xs">
+                    <span class="font-medium text-heading">Voor datum</span>
+                    <input type="date" name="before_date" class="ml-1 px-2 py-0.5 rounded border border-violet-200 text-xs font-mono">
+                </span>
+            </label>
+            <label class="flex items-start gap-2 cursor-pointer">
+                <input type="radio" name="mode" value="all" class="mt-0.5 accent-violet-600">
+                <span class="text-xs">
+                    <span class="font-medium text-red-700">Alles verwijderen</span>
+                    <span class="text-slate-500 block">{{ stats.total }} opname(s) · ~{{ stats.total_mb }} MB</span>
+                </span>
+            </label>
+        </div>
+
+        <div>
+            <label class="block text-xs font-medium text-heading mb-1">Typ VERWIJDEREN ter bevestiging</label>
+            <input type="text" name="confirm" required autocomplete="off" placeholder="VERWIJDEREN"
+                   class="w-full max-w-xs px-3 py-2 rounded-lg border border-red-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-red-300">
+        </div>
+
+        <button type="submit"
+                class="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition">
+            Geselecteerde opnames verwijderen
+        </button>
+    </form>
+</section>
+
+<section class="rounded-xl border border-violet-100 bg-surface shadow-card p-5">
+    <h2 class="text-sm font-semibold text-heading mb-1">Automatische bewaring</h2>
+    <p class="text-xs text-slate-500 mb-4">Verwijdert opnames die ouder zijn dan de bewaartermijn per zender (standaard 7 dagen, event-zenders instelbaar).</p>
+    <form method="post" action="/admin/storage/retention">
+        <button type="submit" class="px-4 py-2 rounded-lg bg-violet-100 text-violet-700 text-sm font-medium hover:bg-violet-200 transition">
+            Bewaring nu uitvoeren
+        </button>
+    </form>
+</section>
+{% endblock %}
