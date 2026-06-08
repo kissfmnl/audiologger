@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initCountrySelects();
     initEventToggles();
     initDeleteButtons();
+    initLogoModal();
     scrollToFocus();
     hideDeleteToast();
 });
@@ -157,4 +158,121 @@ function scrollToFocus() {
         card.classList.remove('is-collapsed');
         requestAnimationFrame(() => card.scrollIntoView({ behavior: 'smooth', block: 'center' }));
     }
+}
+
+let activeFormId = null;
+let cropper = null;
+
+function initLogoModal() {
+    const modal = document.getElementById('logo-modal');
+    const fileInput = document.getElementById('logo-file-input');
+    const cropArea = document.getElementById('logo-crop-area');
+    const cropImage = document.getElementById('logo-crop-image');
+    const zoomSlider = document.getElementById('logo-zoom-slider');
+    const applyBtn = document.getElementById('logo-modal-apply');
+    const cancelBtn = document.getElementById('logo-modal-cancel');
+
+    if (!modal || !fileInput || !cropArea || !cropImage || !applyBtn || !cancelBtn) {
+        return;
+    }
+
+    document.querySelectorAll('.logo-open-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            activeFormId = btn.dataset.formId;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            fileInput.value = '';
+            cropArea.classList.add('hidden');
+            applyBtn.disabled = true;
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
+        });
+    });
+
+    cancelBtn.addEventListener('click', closeLogoModal);
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) closeLogoModal();
+    });
+
+    fileInput.addEventListener('change', () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            cropImage.src = reader.result;
+            cropArea.classList.remove('hidden');
+            applyBtn.disabled = false;
+            if (cropper) cropper.destroy();
+            cropper = new Cropper(cropImage, {
+                aspectRatio: 1,
+                viewMode: 1,
+                dragMode: 'move',
+                autoCropArea: 1,
+                responsive: true,
+                background: false,
+            });
+            zoomSlider.value = '1';
+        };
+        reader.readAsDataURL(file);
+    });
+
+    zoomSlider.addEventListener('input', () => {
+        if (cropper) cropper.zoomTo(parseFloat(zoomSlider.value));
+    });
+
+    applyBtn.addEventListener('click', async () => {
+        if (!cropper || !activeFormId) return;
+        const canvas = cropper.getCroppedCanvas({
+            width: 1080,
+            height: 1080,
+            imageSmoothingEnabled: true,
+            imageSmoothingQuality: 'high',
+        });
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        const formSuffix = activeFormId.replace('form-', '');
+        const input = document.getElementById(`logo-data-${formSuffix}`);
+        if (input) input.value = dataUrl;
+
+        const btn = document.querySelector(`.logo-open-btn[data-form-id="${activeFormId}"]`);
+        if (btn) {
+            btn.innerHTML = `<img src="${dataUrl}" class="w-16 h-16 object-cover rounded-xl" alt="Logo">`;
+        }
+
+        if (formSuffix !== 'new') {
+            applyBtn.disabled = true;
+            applyBtn.textContent = 'Opslaan…';
+            try {
+                const response = await fetch(`/admin/stations/${formSuffix}/logo`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'fetch',
+                    },
+                    body: JSON.stringify({ logo_data: dataUrl }),
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Logo opslaan mislukt');
+                }
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                applyBtn.disabled = false;
+                applyBtn.textContent = 'Toepassen';
+            }
+        }
+
+        closeLogoModal();
+    });
+}
+
+function closeLogoModal() {
+    const modal = document.getElementById('logo-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    activeFormId = null;
 }

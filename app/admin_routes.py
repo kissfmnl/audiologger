@@ -1,7 +1,10 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import base64
+import re
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
+from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session
@@ -29,13 +32,19 @@ from app.stations import (
     DEFAULT_TIMEZONE,
     create_station,
     delete_station,
+    get_station_model,
     get_timezone_groups,
     load_stations,
+    save_station_logo,
     update_station,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+class LogoUploadBody(BaseModel):
+    logo_data: str
 
 
 DUTCH_DAYS = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
@@ -56,6 +65,17 @@ def format_dutch_date(dt: datetime | None = None) -> str:
     if dt.tzinfo is not None:
         dt = dt.astimezone(ADMIN_TZ)
     return f"{DUTCH_DAYS[dt.weekday()]} {dt.day} {DUTCH_MONTHS[dt.month - 1]} {dt.year}"
+
+
+def _decode_data_url(data_url: str) -> bytes:
+    match = re.match(r"^data:image/(jpeg|jpg|png|webp);base64,(.+)$", data_url, re.DOTALL)
+    if not match:
+        raise ValueError("Ongeldig logo-formaat")
+    return base64.b64decode(match.group(2))
+
+
+def _save_logo_from_data_url(station_id: str, data_url: str) -> None:
+    save_station_logo(station_id, _decode_data_url(data_url))
 
 
 def admin_redirect_if_needed(request: Request):
@@ -285,6 +305,7 @@ def admin_create_station(
     event_end_date: str = Form(default=""),
     retention_days: str = Form(default=""),
     active: str | None = Form(default=None),
+    logo_data: str = Form(default=""),
 ):
     redirect = admin_redirect_if_needed(request)
     if redirect:
@@ -306,6 +327,8 @@ def admin_create_station(
             retention_days=retention_days or None,
             active=active == "on",
         )
+        if logo_data:
+            _save_logo_from_data_url(station_id, logo_data)
         reload_scheduler()
         first_run = schedule_first_recording(station_id)
     except ValueError as exc:
@@ -335,6 +358,7 @@ def admin_update_station(
     event_end_date: str = Form(default=""),
     retention_days: str = Form(default=""),
     active: str | None = Form(default=None),
+    logo_data: str = Form(default=""),
 ):
     redirect = admin_redirect_if_needed(request)
     if redirect:
@@ -354,6 +378,8 @@ def admin_update_station(
             retention_days=retention_days or None,
             active=active == "on",
         )
+        if logo_data:
+            _save_logo_from_data_url(station_id, logo_data)
         reload_scheduler()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -382,6 +408,42 @@ def admin_delete_station(
         return JSONResponse({"ok": True, "id": station_id})
 
     return RedirectResponse(url=admin_url(notice="deleted"), status_code=303)
+
+
+@router.post("/stations/{station_id}/logo")
+async def admin_upload_logo(
+    request: Request,
+    station_id: str,
+    session: Session = Depends(get_session),
+    logo: UploadFile | None = None,
+    logo_data: str = Form(default=""),
+):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    if not get_station_model(session, station_id):
+        raise HTTPException(status_code=404, detail="Zender niet gevonden")
+
+    if not logo_data and request.headers.get("content-type", "").startswith("application/json"):
+        body = LogoUploadBody.model_validate(await request.json())
+        logo_data = body.logo_data
+
+    try:
+        if logo_data:
+            image_bytes = _decode_data_url(logo_data)
+        elif logo:
+            image_bytes = await logo.read()
+        else:
+            raise ValueError("Geen logo ontvangen")
+        save_station_logo(station_id, image_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if request.headers.get("X-Requested-With") == "fetch":
+        return JSONResponse({"ok": True, "logo_url": f"/logos/{station_id}.jpg"})
+
+    return RedirectResponse(url=admin_url(notice="logo"), status_code=303)
 
 
 @router.get("/website", response_class=HTMLResponse)
