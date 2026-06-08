@@ -1,4 +1,5 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -43,9 +44,17 @@ DUTCH_MONTHS = [
     "juli", "augustus", "september", "oktober", "november", "december",
 ]
 
+ADMIN_TZ = ZoneInfo(DEFAULT_TIMEZONE)
+
+
+def admin_now() -> datetime:
+    return datetime.now(ADMIN_TZ)
+
 
 def format_dutch_date(dt: datetime | None = None) -> str:
-    dt = dt or datetime.now()
+    dt = dt or admin_now()
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(ADMIN_TZ)
     return f"{DUTCH_DAYS[dt.weekday()]} {dt.day} {DUTCH_MONTHS[dt.month - 1]} {dt.year}"
 
 

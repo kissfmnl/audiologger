@@ -79,8 +79,8 @@ def _matches_purge(
     if mode == "except_today":
         return rec_date < today
     if mode == "older_than_days" and older_than_days is not None:
-        cutoff = datetime.now() - timedelta(days=older_than_days)
-        return recording.start_time < cutoff
+        cutoff_date = today - timedelta(days=older_than_days)
+        return rec_date < cutoff_date
     if mode == "before_date" and before_date is not None:
         return rec_date < before_date
     return False
@@ -153,7 +153,7 @@ def purge_recordings(
 
 def cleanup_expired_recordings() -> dict:
     """Verwijder opnames ouder dan de bewaartermijn van de zender."""
-    now = datetime.now()
+    now = datetime.now(ZoneInfo("Europe/Amsterdam")).replace(tzinfo=None)
     deleted = 0
 
     with Session(engine) as session:
