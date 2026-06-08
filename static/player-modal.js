@@ -65,6 +65,7 @@
     let zoom = MIN_ZOOM;
     let viewStart = 0;
     let lastFocusInView = 0.5;
+    let pointerOverCanvas = false;
     let syncingZoomSlider = false;
     let selectionRegion = null;
     let currentRecordingId = null;
@@ -161,6 +162,7 @@
             const newSpan = getViewSpan();
             viewStart = clampViewStart(focusPoint - focusInView * newSpan);
         }
+        lastFocusInView = focusInView;
         updateZoomUi();
         drawWaveform();
     }
@@ -302,13 +304,6 @@
         const tick = () => {
             if (audio) {
                 currentTimeEl.textContent = formatTime(audio.currentTime);
-                if (zoom > MIN_ZOOM) {
-                    const progress = timeToRatio(audio.currentTime);
-                    const span = getViewSpan();
-                    if (progress < viewStart + span * 0.08 || progress > viewStart + span * 0.92) {
-                        setViewStart(progress - span / 2);
-                    }
-                }
             }
             drawWaveform();
             rafId = requestAnimationFrame(tick);
@@ -764,7 +759,8 @@
             if (syncingZoomSlider) {
                 return;
             }
-            setZoomLevel(Number(zoomSlider.value), lastFocusInView);
+            const focus = pointerOverCanvas ? lastFocusInView : 0.5;
+            setZoomLevel(Number(zoomSlider.value), focus);
         });
     }
 
@@ -775,6 +771,14 @@
             setViewStart(maxStart * ratio);
         });
     }
+
+    canvas.addEventListener("mouseenter", () => {
+        pointerOverCanvas = true;
+    });
+
+    canvas.addEventListener("mouseleave", () => {
+        pointerOverCanvas = false;
+    });
 
     canvas.addEventListener("mousemove", (event) => {
         lastFocusInView = pointerToFocusRatio(event);

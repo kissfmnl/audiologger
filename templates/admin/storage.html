@@ -40,6 +40,23 @@
 </div>
 {% endif %}
 
+{% if storage.disk_total_gb %}
+<div class="mb-6 rounded-xl border border-violet-100 bg-violet-50/40 shadow-card p-5">
+    <h2 class="text-sm font-semibold text-heading mb-2">Opslag-planning (128 kbps MP3)</h2>
+    <p class="text-xs text-slate-600 leading-relaxed">
+        <strong>20 zenders × 5 dagen</strong> ≈ <strong>{{ capacity.needed_gb }} GB</strong> nodig
+        (~57,6 MB per station per uur).
+        {% if capacity.fits %}
+        Past op je volume van {{ storage.disk_total_gb }} GB
+        {% if capacity.headroom_gb is not none %} ({{ capacity.headroom_gb }} GB over){% endif %}.
+        {% else %}
+        <span class="text-amber-900 font-medium">Past niet</span> op {{ storage.disk_total_gb }} GB —
+        max. ~{{ capacity.max_retention_days }} dagen voor 20 zenders, of ~{{ capacity.max_stations }} zenders voor 5 dagen.
+        {% endif %}
+    </p>
+</div>
+{% endif %}
+
 <div class="grid sm:grid-cols-3 gap-3 mb-6">
     <div class="rounded-xl border border-violet-100 bg-surface p-4 text-center shadow-card">
         <p class="text-2xl font-bold text-heading">{{ stats.total }}</p>

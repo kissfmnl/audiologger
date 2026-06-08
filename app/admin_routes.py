@@ -10,8 +10,8 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session
 
 from app.admin_auth import is_authenticated, login, logout
-from app.database import BASE_DIR, get_session, get_storage_status
-from app.logging_status import get_logging_overview
+from app.database import BASE_DIR, get_session, get_storage_status, storage_capacity_plan
+from app.logging_status import get_hour_duration_audit, get_logging_overview
 from app.retention import (
     cleanup_expired_recordings,
     get_archive_stats,
@@ -147,6 +147,7 @@ def admin_logging_status(request: Request):
         return redirect
 
     overview = get_logging_overview()
+    duration_audit = get_hour_duration_audit(days_back=3)
     recovery_job = None
     from app.scheduler import scheduler
 
@@ -162,6 +163,7 @@ def admin_logging_status(request: Request):
         "admin/logging.html",
         {
             "overview": overview,
+            "duration_audit": duration_audit,
             "date_label": format_dutch_date(),
             "active_nav": "logging",
             "storage": get_storage_status(),
@@ -178,12 +180,19 @@ def admin_storage(request: Request):
         return redirect
 
     stats = get_archive_stats()
+    storage = get_storage_status()
+    capacity = storage_capacity_plan(
+        storage.get("disk_total_gb") or 0,
+        station_count=20,
+        retention_days=5,
+    )
     return templates.TemplateResponse(
         request,
         "admin/storage.html",
         {
             "stats": stats,
-            "storage": get_storage_status(),
+            "storage": storage,
+            "capacity": capacity,
             "preview_except_today": preview_purge("except_today"),
             "date_label": format_dutch_date(),
             "active_nav": "storage",

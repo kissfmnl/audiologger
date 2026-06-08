@@ -50,6 +50,31 @@
 </div>
 {% endif %}
 
+{% if duration_audit.checked > 0 %}
+<div class="mb-6 rounded-xl border {% if duration_audit.issue_count %}border-amber-200 bg-amber-50/60{% else %}border-emerald-200 bg-emerald-50/60{% endif %} shadow-card overflow-hidden">
+    <div class="px-4 py-3 border-b {% if duration_audit.issue_count %}border-amber-100{% else %}border-emerald-100{% endif %} flex items-center justify-between gap-3">
+        <h2 class="text-xs font-semibold text-heading uppercase tracking-wide">Uur-lengte controle</h2>
+        <span class="text-[10px] font-medium {% if duration_audit.issue_count %}text-amber-800 bg-amber-100{% else %}text-emerald-800 bg-emerald-100{% endif %} px-2 py-0.5 rounded-full">
+            {{ duration_audit.ok_count }}/{{ duration_audit.checked }} × {{ duration_audit.target_minutes }} min
+        </span>
+    </div>
+    <div class="px-4 py-3 text-xs text-slate-600">
+        <p>Laatste {{ duration_audit.days_back }} dagen — elke afgeronde opname hoort ~60 min te zijn (±45 sec marge).</p>
+        {% if duration_audit.issue_count == 0 %}
+        <p class="mt-2 text-emerald-800 font-medium">Alle gecontroleerde uren hebben de juiste lengte.</p>
+        {% else %}
+        <ul class="mt-3 space-y-1.5 max-h-48 overflow-y-auto">
+            {% for item in duration_audit.issues %}
+            <li class="font-mono text-[11px] {% if item.problem == 'too_long' %}text-amber-900{% else %}text-red-800{% endif %}">
+                {{ item.station_name }} · {{ item.start_time }} · {{ item.label }}
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
 {% if storage.usage_percent is not none %}
 <div class="mb-6 rounded-xl border border-violet-100 bg-surface shadow-card p-4">
     <div class="flex items-center justify-between gap-3 mb-2">

@@ -1,12 +1,17 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, select
 
 from app.database import engine
 from app.models import Recording
+from app.peaks import get_audio_duration
 from app.scheduler import scheduler
 from app.stations import load_stations, retention_label, should_record_station
+
+HOUR_DURATION_TARGET = 3600
+HOUR_DURATION_TOLERANCE = 45
 
 
 def skip_reason(station: dict) -> str | None:
@@ -31,6 +36,69 @@ def skip_reason(station: dict) -> str | None:
     if today > end:
         return f"Event afgelopen op {end.strftime('%d-%m-%Y')}"
     return None
+
+
+def _recording_duration_seconds(recording: Recording) -> int:
+    path = Path(recording.file_path)
+    if path.exists() and path.stat().st_size > 0:
+        return int(get_audio_duration(path))
+    return recording.duration_seconds or 0
+
+
+def get_hour_duration_audit(days_back: int = 3) -> dict:
+    """Controleer of afgeronde uur-opnames ~60 minuten duren."""
+    tz = ZoneInfo("Europe/Amsterdam")
+    cutoff = datetime.now(tz).replace(tzinfo=None) - timedelta(days=days_back)
+
+    with Session(engine) as session:
+        recordings = session.exec(
+            select(Recording)
+            .where(Recording.status == "completed")
+            .order_by(Recording.start_time.desc())
+        ).all()
+
+    issues = []
+    ok_count = 0
+    checked = 0
+
+    for recording in recordings:
+        if recording.start_time < cutoff:
+            continue
+
+        checked += 1
+        duration = _recording_duration_seconds(recording)
+        delta = duration - HOUR_DURATION_TARGET
+
+        if abs(delta) <= HOUR_DURATION_TOLERANCE:
+            ok_count += 1
+            continue
+
+        if delta > 0:
+            problem = "too_long"
+            label = f"{duration // 60}m {duration % 60}s — te lang"
+        else:
+            problem = "too_short"
+            label = f"{duration // 60}m {duration % 60}s — te kort"
+
+        issues.append(
+            {
+                "station_name": recording.station_name,
+                "station_id": recording.station_id,
+                "start_time": recording.start_time.strftime("%d-%m-%Y %H:%M"),
+                "duration_seconds": duration,
+                "problem": problem,
+                "label": label,
+            }
+        )
+
+    return {
+        "checked": checked,
+        "ok_count": ok_count,
+        "issue_count": len(issues),
+        "issues": issues[:25],
+        "days_back": days_back,
+        "target_minutes": HOUR_DURATION_TARGET // 60,
+    }
 
 
 def get_logging_overview() -> dict:

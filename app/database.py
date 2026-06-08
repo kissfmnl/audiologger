@@ -98,6 +98,39 @@ def get_storage_status() -> dict:
     }
 
 
+def estimate_archive_storage_gb(
+    station_count: int,
+    retention_days: int,
+    *,
+    hours_per_day: int = 24,
+    mb_per_hour: float = 57.6,
+) -> float:
+    """Geschat archief bij 128 kbps MP3 (~57.6 MB per station-uur)."""
+    total_mb = station_count * retention_days * hours_per_day * mb_per_hour
+    return round(total_mb / 1024, 1)
+
+
+def storage_capacity_plan(
+    disk_total_gb: float,
+    station_count: int,
+    retention_days: int,
+) -> dict:
+    needed_gb = estimate_archive_storage_gb(station_count, retention_days)
+    max_days = 0.0
+    max_stations = 0
+    if station_count > 0:
+        max_days = round(disk_total_gb * 1024 / (station_count * 24 * 57.6), 1)
+    if retention_days > 0:
+        max_stations = int(disk_total_gb * 1024 / (retention_days * 24 * 57.6))
+    return {
+        "needed_gb": needed_gb,
+        "fits": needed_gb <= disk_total_gb if disk_total_gb > 0 else None,
+        "headroom_gb": round(disk_total_gb - needed_gb, 1) if disk_total_gb > 0 else None,
+        "max_retention_days": max_days,
+        "max_stations": max_stations,
+    }
+
+
 def verify_persistent_storage() -> None:
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
     marker = RECORDINGS_DIR / ".volume_write_test"
