@@ -5,6 +5,7 @@
     const titleEl = document.getElementById("player-modal-title");
     const subtitleEl = document.getElementById("player-modal-subtitle");
     const canvas = document.getElementById("player-modal-canvas");
+    const overviewCanvas = document.getElementById("player-modal-overview");
     const loadingEl = document.getElementById("player-modal-loading");
     const controlsEl = document.getElementById("player-modal-controls");
     const playBtn = document.getElementById("player-modal-play");
@@ -29,10 +30,12 @@
     }
 
     const ctx = canvas.getContext("2d");
+    const overviewCtx = overviewCanvas ? overviewCanvas.getContext("2d") : null;
     const peaksCache = new Map();
     const peaksInflight = new Map();
     const MIN_ZOOM = 1;
-    const MAX_ZOOM = 48;
+    const TARGET_VISIBLE_SECONDS = 20 * 60;
+    let maxZoom = MIN_ZOOM;
     const PAN_STEPS = 1000;
     const WAVEFORM_WAIT_SEC = 3;
     const SELECTION_DEFAULT_SEC = 10;
@@ -70,6 +73,7 @@
     let selectionRegion = null;
     let currentRecordingId = null;
     let canTrim = false;
+    let clipMeta = { stationSlug: "", date: "", hour: "00" };
 
     function parseInlinePeaks(raw) {
         if (!raw) {
@@ -106,6 +110,33 @@
             return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
         }
         return `${minutes}:${secs.toString().padStart(2, "0")}`;
+    }
+
+    function sanitizeFilenamePart(value) {
+        return String(value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9._-]+/g, "-")
+            .replace(/^-+|-+$/g, "") || "opname";
+    }
+
+    function buildClipFilename() {
+        const station = sanitizeFilenamePart(clipMeta.stationSlug);
+        const date = clipMeta.date || "datum";
+        const hour = String(clipMeta.hour ?? 0).padStart(2, "0");
+        return `${station}-${date}-clip-${hour}.mp3`;
+    }
+
+    function refreshMaxZoom() {
+        maxZoom = Math.max(MIN_ZOOM, Math.ceil((duration || 3600) / TARGET_VISIBLE_SECONDS));
+        if (zoomSlider) {
+            zoomSlider.max = String(maxZoom);
+        }
+        if (zoom > maxZoom) {
+            setZoomLevel(maxZoom, lastFocusInView);
+        } else {
+            updateZoomUi();
+        }
     }
 
     function getViewSpan() {
@@ -155,7 +186,7 @@
     function setZoomLevel(newZoom, focusInView = lastFocusInView) {
         const oldSpan = getViewSpan();
         const focusPoint = viewStart + focusInView * oldSpan;
-        zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(newZoom)));
+        zoom = Math.min(maxZoom, Math.max(MIN_ZOOM, Math.round(newZoom)));
         if (zoom === MIN_ZOOM) {
             viewStart = 0;
         } else {
@@ -188,6 +219,11 @@
         const dpr = window.devicePixelRatio || 1;
         canvas.width = Math.max(1, Math.floor(rect.width * dpr));
         canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+        if (overviewCanvas && overviewCtx) {
+            const overviewRect = overviewCanvas.getBoundingClientRect();
+            overviewCanvas.width = Math.max(1, Math.floor(overviewRect.width * dpr));
+            overviewCanvas.height = Math.max(1, Math.floor(overviewRect.height * dpr));
+        }
         drawWaveform();
     }
 
@@ -290,6 +326,118 @@
             ctx.fillStyle = WAVE_COLOR_CURSOR;
             ctx.fillRect(Math.max(0, playheadX - 1), 0, 2, height);
         }
+
+        drawTimeAxis(width, height);
+        drawOverview();
+    }
+
+    function drawTimeAxis(width, height) {
+        if (zoom <= MIN_ZOOM || !duration) {
+            return;
+        }
+        const span = getViewSpan();
+        const visibleSeconds = duration * span;
+        const step = visibleSeconds <= 15 * 60 ? 60 : 120;
+        const startSec = viewStart * duration;
+        const endSec = startSec + visibleSeconds;
+        const firstTick = Math.ceil(startSec / step) * step;
+
+        ctx.save();
+        ctx.fillStyle = "#64748b";
+        ctx.font = `${Math.max(10, Math.floor(width / 90))}px Inter, system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+
+        for (let sec = firstTick; sec <= endSec; sec += step) {
+            const ratio = sec / duration;
+            const x = ratioToCanvasX(ratio);
+            if (x < 0 || x > width) {
+                continue;
+            }
+            ctx.fillRect(x, height - 14, 1, 8);
+            const mins = Math.floor(sec / 60);
+            const secs = Math.floor(sec % 60);
+            ctx.fillText(`${mins}:${secs.toString().padStart(2, "0")}`, x, height - 16);
+        }
+        ctx.restore();
+    }
+
+    function drawOverview() {
+        if (!overviewCanvas || !overviewCtx || !peaks.length) {
+            return;
+        }
+
+        const width = overviewCanvas.width;
+        const height = overviewCanvas.height;
+        const mid = height / 2;
+        overviewCtx.clearRect(0, 0, width, height);
+
+        const samples = getVisiblePeaksForRange(width, 0, 1);
+        drawFilledWaveOnContext(overviewCtx, samples, width, height, mid, WAVE_COLOR_IDLE, null);
+
+        const span = getViewSpan();
+        const left = viewStart * width;
+        const viewportWidth = Math.max(2, span * width);
+        overviewCtx.fillStyle = "rgba(124, 58, 237, 0.12)";
+        overviewCtx.fillRect(left, 0, viewportWidth, height);
+        overviewCtx.strokeStyle = WAVE_COLOR_PLAYED;
+        overviewCtx.lineWidth = 2;
+        overviewCtx.strokeRect(left + 0.5, 0.5, Math.max(0, viewportWidth - 1), height - 1);
+
+        if (audio && duration > 0) {
+            const playX = timeToRatio(audio.currentTime) * width;
+            overviewCtx.fillStyle = WAVE_COLOR_CURSOR;
+            overviewCtx.fillRect(Math.max(0, playX - 1), 0, 2, height);
+        }
+    }
+
+    function getVisiblePeaksForRange(width, rangeStart, rangeEnd) {
+        if (!peaks.length) {
+            return [];
+        }
+        const startIdx = rangeStart * peaks.length;
+        const endIdx = rangeEnd * peaks.length;
+        const samples = new Array(width).fill(0);
+        for (let x = 0; x < width; x += 1) {
+            const sliceStart = startIdx + (x / width) * (endIdx - startIdx);
+            const sliceEnd = startIdx + ((x + 1) / width) * (endIdx - startIdx);
+            const iStart = Math.floor(sliceStart);
+            const iEnd = Math.max(iStart + 1, Math.ceil(sliceEnd));
+            let max = 0;
+            for (let i = iStart; i < iEnd && i < peaks.length; i += 1) {
+                if (i >= 0) {
+                    max = Math.max(max, peaks[i]);
+                }
+            }
+            samples[x] = max;
+        }
+        return samples;
+    }
+
+    function drawFilledWaveOnContext(targetCtx, samples, width, height, mid, color, clipEndX) {
+        if (!samples.length) {
+            return;
+        }
+        targetCtx.save();
+        if (clipEndX !== null) {
+            targetCtx.beginPath();
+            targetCtx.rect(0, 0, clipEndX, height);
+            targetCtx.clip();
+        }
+        targetCtx.fillStyle = color;
+        targetCtx.beginPath();
+        targetCtx.moveTo(0, mid);
+        for (let x = 0; x < width; x += 1) {
+            const amplitude = samples[x] * mid * 0.92;
+            targetCtx.lineTo(x, mid - amplitude);
+        }
+        for (let x = width - 1; x >= 0; x -= 1) {
+            const amplitude = samples[x] * mid * 0.92;
+            targetCtx.lineTo(x, mid + amplitude);
+        }
+        targetCtx.closePath();
+        targetCtx.fill();
+        targetCtx.restore();
     }
 
     function stopAnimation() {
@@ -455,7 +603,7 @@
             const url = URL.createObjectURL(blob);
             const anchor = document.createElement("a");
             anchor.href = url;
-            anchor.download = "fragment.mp3";
+            anchor.download = buildClipFilename();
             document.body.appendChild(anchor);
             anchor.click();
             anchor.remove();
@@ -604,6 +752,7 @@
         peaks = peakValues(data);
         duration = data.duration || duration || 3600;
         totalTimeEl.textContent = formatTime(duration);
+        refreshMaxZoom();
         resizeCanvas();
         revealControls();
     }
@@ -649,6 +798,12 @@
         if (!url || !audioUrl) {
             return;
         }
+
+        clipMeta = {
+            stationSlug: button.dataset.stationSlug || "",
+            date: button.dataset.recordingDate || "",
+            hour: button.dataset.recordingHour || "00",
+        };
 
         activeButton = button;
         button.disabled = true;
@@ -711,6 +866,8 @@
                 if (audio.duration && Number.isFinite(audio.duration)) {
                     duration = audio.duration;
                     totalTimeEl.textContent = formatTime(duration);
+                    refreshMaxZoom();
+                    resizeCanvas();
                 }
             });
 
@@ -794,6 +951,19 @@
             zoomOut(focus);
         }
     }, { passive: false });
+
+    if (overviewCanvas) {
+        overviewCanvas.addEventListener("click", (event) => {
+            if (!duration) {
+                return;
+            }
+            const rect = overviewCanvas.getBoundingClientRect();
+            const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+            const span = getViewSpan();
+            setViewStart(ratio - span / 2);
+            drawWaveform();
+        });
+    }
 
     canvas.addEventListener("click", seekFromPointer);
 

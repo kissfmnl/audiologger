@@ -94,6 +94,9 @@
     const recordingId = {{ recording.id }};
     const audioUrl = "{{ audio_url }}";
     const stationName = {{ recording.station_name | tojson }};
+    const stationSlug = {{ (station.id if station else recording.station_id) | tojson }};
+    const recordingDate = "{{ recording.start_time.strftime('%Y-%m-%d') if recording.start_time else '' }}";
+    const recordingHour = "{{ recording.start_time.strftime('%H') if recording.start_time else '00' }}";
     const SELECTION_DEFAULT_SEC = 10;
     const REGION_COLOR = "rgba(124, 58, 237, 0.22)";
 
@@ -287,6 +290,17 @@
     document.getElementById("createStartButton").addEventListener("click", setSelectionStart);
     document.getElementById("createEndButton").addEventListener("click", setSelectionEnd);
 
+    function buildClipFilename() {
+        const station = String(stationSlug || stationName || "opname")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9._-]+/g, "-")
+            .replace(/^-+|-+$/g, "") || "opname";
+        const date = recordingDate || "datum";
+        const hour = String(recordingHour ?? "00").padStart(2, "0");
+        return `${station}-${date}-clip-${hour}.mp3`;
+    }
+
     document.getElementById("downloadRegionButton").addEventListener("click", async () => {
         if (!activeRegion) {
             return;
@@ -325,7 +339,7 @@
             const url = URL.createObjectURL(blob);
             const anchor = document.createElement("a");
             anchor.href = url;
-            anchor.download = `${stationName.replace(/[^a-z0-9]+/gi, "_")}_fragment.mp3`;
+            anchor.download = buildClipFilename();
             document.body.appendChild(anchor);
             anchor.click();
             anchor.remove();
