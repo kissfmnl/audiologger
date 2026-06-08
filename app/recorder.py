@@ -1,4 +1,5 @@
 import logging
+import os
 import shutil
 import subprocess
 import threading
@@ -11,16 +12,22 @@ from sqlmodel import Session, select
 
 from app.database import LOGS_DIR, RECORDINGS_DIR, engine
 from app.galio import ensure_galio_async
-from app.peaks import ensure_peaks_async, peaks_cache_path
+from app.peaks import ensure_peaks_async, get_audio_duration, peaks_cache_path
 from app.models import Recording
 
 logger = logging.getLogger(__name__)
 
 RECORDING_DURATION_SECONDS = 3600
 MP3_BITRATE = "128k"
+BYTES_PER_SECOND_128K = 16000
 RECORDING_USER_AGENT = "Mozilla/5.0 (compatible; AudioLogger/1.0)"
-MAX_CONCURRENT_RECORDINGS = 2
+# Elke zender mag tegelijk loggen — anders wachten jobs een uur en missen ze hun slot.
+MAX_CONCURRENT_RECORDINGS = max(4, int(os.environ.get("MAX_CONCURRENT_RECORDINGS", "10")))
 _recording_slots = threading.BoundedSemaphore(MAX_CONCURRENT_RECORDINGS)
+
+MIN_SEGMENT_BYTES = 50_000
+MIN_PLAYABLE_SECONDS = 300
+MIN_COMPLETED_BYTES = 2 * 1024 * 1024
 
 
 def sanitize_name(name: str) -> str:
@@ -57,13 +64,32 @@ def _hour_window(station: dict, start_time: datetime) -> tuple[datetime, datetim
     return hour_start, hour_start + timedelta(hours=1), tz
 
 
+def recording_file_is_valid(path: Path, min_seconds: float = MIN_PLAYABLE_SECONDS) -> bool:
+    if not path.exists() or path.stat().st_size < MIN_COMPLETED_BYTES:
+        return False
+    duration = get_audio_duration(path)
+    return duration >= min_seconds
+
+
+def min_required_seconds(station: dict, start_time: datetime, record_started_at: datetime) -> float:
+    _, hour_end, tz = _hour_window(station, start_time)
+    if record_started_at.tzinfo is None:
+        record_started_at = record_started_at.replace(tzinfo=tz)
+    else:
+        record_started_at = record_started_at.astimezone(tz)
+    available = max(0.0, (hour_end - record_started_at).total_seconds())
+    if available <= 0:
+        return MIN_PLAYABLE_SECONDS
+    return max(60.0, min(MIN_PLAYABLE_SECONDS, available * 0.85))
+
+
 def is_hour_actively_recording(
     station: dict,
     start_time: datetime,
     now: datetime | None = None,
 ) -> bool:
     """True only while ffmpeg is plausibly still capturing this hour (not stale part dirs)."""
-    hour_start, hour_end, tz = _hour_window(station, start_time)
+    _, hour_end, tz = _hour_window(station, start_time)
     if now is None:
         now = datetime.now(tz)
     elif now.tzinfo is None:
@@ -85,7 +111,6 @@ def is_hour_actively_recording(
                     return True
         return False
 
-    # Hour is over — only trust a very fresh log (ffmpeg still finishing concat).
     return log_recent and now < hour_end + timedelta(minutes=5)
 
 
@@ -121,9 +146,6 @@ def get_partial_recording_path(recording: Recording) -> Path | None:
     return None
 
 
-MIN_VALID_MP3_BYTES = 100_000
-
-
 def has_completed_recording(station_id: str, start_time: datetime) -> bool:
     with Session(engine) as session:
         existing = session.exec(
@@ -133,7 +155,9 @@ def has_completed_recording(station_id: str, start_time: datetime) -> bool:
                 Recording.status == "completed",
             )
         ).first()
-        return existing is not None
+        if not existing:
+            return False
+        return recording_file_is_valid(Path(existing.file_path))
 
 
 def _ffmpeg_input_args(url: str) -> list[str]:
@@ -270,9 +294,12 @@ def save_recording_to_db(
     output_path: Path,
     status: str,
     error_message: str | None = None,
+    actual_duration: int | None = None,
 ) -> Recording:
     end_time = start_time + timedelta(seconds=RECORDING_DURATION_SECONDS)
-    duration = RECORDING_DURATION_SECONDS if status == "completed" else 0
+    duration = actual_duration if actual_duration is not None else (
+        RECORDING_DURATION_SECONDS if status == "completed" else 0
+    )
     if status == "completed":
         file_size = get_file_size_mb(output_path)
     elif status == "recording":
@@ -338,24 +365,27 @@ def record_station(station: dict, start_time: datetime | None = None) -> Recordi
         now = datetime.now(tz)
         start_time = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
 
-    if has_completed_recording(station["id"], start_time):
+    target_hour = start_time.replace(tzinfo=None)
+
+    if has_completed_recording(station["id"], target_hour):
         with Session(engine) as session:
             return session.exec(
                 select(Recording).where(
                     Recording.station_id == station["id"],
-                    Recording.start_time == start_time,
+                    Recording.start_time == target_hour,
                     Recording.status == "completed",
                 )
             ).one()
 
     logger.info(
-        "Waiting for recording slot (%s at %s)",
+        "Waiting for recording slot (%s at %s, max %s concurrent)",
         station["id"],
-        start_time.strftime("%Y-%m-%d %H:%M"),
+        target_hour.strftime("%Y-%m-%d %H:%M"),
+        MAX_CONCURRENT_RECORDINGS,
     )
     _recording_slots.acquire()
     try:
-        return _record_station_locked(station, start_time, tz)
+        return _record_station_locked(station, target_hour, tz)
     finally:
         _recording_slots.release()
 
@@ -363,10 +393,23 @@ def record_station(station: dict, start_time: datetime | None = None) -> Recordi
 def _record_station_locked(station: dict, start_time: datetime, tz: ZoneInfo) -> Recording:
     hour_start = start_time.replace(tzinfo=tz)
     hour_end = hour_start + timedelta(hours=1)
+    record_started_at = datetime.now(tz)
+    min_seconds = min_required_seconds(station, start_time, record_started_at)
+
+    if record_started_at >= hour_end:
+        logger.error(
+            "Recording slot acquired too late for %s hour %s (now %s)",
+            station["id"],
+            start_time.strftime("%H:%M"),
+            record_started_at.strftime("%H:%M:%S"),
+        )
 
     output_path = build_output_path(station, start_time)
     log_path = LOGS_DIR / f"{output_path.stem}.log"
-    log_path.write_text(f"Recording hour {start_time.isoformat()}\n", encoding="utf-8")
+    log_path.write_text(
+        f"Recording hour {start_time.isoformat()} (slot acquired {record_started_at.isoformat()})\n",
+        encoding="utf-8",
+    )
 
     parts_dir = output_path.parent / f".{output_path.stem}_parts"
     parts_dir.mkdir(parents=True, exist_ok=True)
@@ -391,29 +434,28 @@ def _record_station_locked(station: dict, start_time: datetime, tz: ZoneInfo) ->
                 duration_seconds=remaining,
             )
 
-            if segment_path.exists() and segment_path.stat().st_size > 0:
+            if segment_path.exists() and segment_path.stat().st_size >= MIN_SEGMENT_BYTES:
                 segments.append(segment_path)
                 segment_idx += 1
                 with Session(engine) as session:
                     save_recording_to_db(session, station, start_time, output_path, "recording")
-
-            if success:
-                break
-
-            logger.warning(
-                "Stream error for %s at %s, restarting immediately: %s",
-                station["id"],
-                start_time.strftime("%Y-%m-%d %H:%M"),
-                last_error,
-            )
-            if segment_path.exists() and segment_path.stat().st_size == 0:
+            elif segment_path.exists() and segment_path.stat().st_size == 0:
                 segment_path.unlink(missing_ok=True)
 
-        success = bool(segments) and concat_mp3_segments(segments, output_path)
-        status = "completed" if success else "failed"
+            # Stream kan na enkele seconden stoppen — doorloggen tot het uur voorbij is.
+            if not success:
+                time.sleep(2)
 
-        if not success and output_path.exists():
+        concat_ok = bool(segments) and concat_mp3_segments(segments, output_path)
+        valid = concat_ok and recording_file_is_valid(output_path, min_seconds)
+        status = "completed" if valid else "failed"
+
+        if not valid and output_path.exists():
             output_path.unlink(missing_ok=True)
+
+        actual_duration = 0
+        if valid:
+            actual_duration = int(get_audio_duration(output_path))
 
         with Session(engine) as session:
             recording = save_recording_to_db(
@@ -422,12 +464,13 @@ def _record_station_locked(station: dict, start_time: datetime, tz: ZoneInfo) ->
                 start_time,
                 output_path,
                 status,
-                error_message=None if success else last_error,
+                error_message=None if valid else last_error or "Opname te kort of leeg",
+                actual_duration=actual_duration if valid else 0,
             )
 
-        if not success:
+        if not valid:
             raise RuntimeError(
-                f"Recording failed for {station['id']} at {start_time.isoformat()}: {last_error}"
+                f"Recording failed for {station['id']} at {start_time.isoformat()}: {last_error or 'too short'}"
             )
 
         ensure_peaks_async(output_path)
@@ -455,9 +498,13 @@ def finalize_stale_recording(
 
     output_path = Path(recording.file_path)
     parts_dir = output_path.parent / f".{output_path.stem}_parts"
+    min_seconds = MIN_PLAYABLE_SECONDS
 
-    if output_path.exists() and output_path.stat().st_size >= MIN_VALID_MP3_BYTES:
-        updated = save_recording_to_db(session, station, start_time, output_path, "completed")
+    if output_path.exists() and recording_file_is_valid(output_path, min_seconds):
+        duration = int(get_audio_duration(output_path))
+        updated = save_recording_to_db(
+            session, station, start_time, output_path, "completed", actual_duration=duration
+        )
         ensure_peaks_async(output_path)
         ensure_galio_async(output_path)
         logger.info("Finalized stale recording as completed: %s %s", station["id"], start_time)
@@ -465,20 +512,55 @@ def finalize_stale_recording(
 
     segments = []
     if parts_dir.is_dir():
-        segments = [part for part in sorted(parts_dir.glob("part*.mp3")) if part.stat().st_size > 0]
+        segments = [
+            part for part in sorted(parts_dir.glob("part*.mp3"))
+            if part.stat().st_size >= MIN_SEGMENT_BYTES
+        ]
 
     if segments and concat_mp3_segments(segments, output_path):
-        updated = save_recording_to_db(session, station, start_time, output_path, "completed")
-        ensure_peaks_async(output_path)
-        ensure_galio_async(output_path)
-        shutil.rmtree(parts_dir, ignore_errors=True)
-        logger.info("Salvaged stale recording from parts: %s %s", station["id"], start_time)
-        return updated
+        if recording_file_is_valid(output_path, min_seconds):
+            duration = int(get_audio_duration(output_path))
+            updated = save_recording_to_db(
+                session, station, start_time, output_path, "completed", actual_duration=duration
+            )
+            ensure_peaks_async(output_path)
+            ensure_galio_async(output_path)
+            shutil.rmtree(parts_dir, ignore_errors=True)
+            logger.info("Salvaged stale recording from parts: %s %s", station["id"], start_time)
+            return updated
 
     updated = save_recording_to_db(session, station, start_time, output_path, "failed")
     shutil.rmtree(parts_dir, ignore_errors=True)
+    if output_path.exists():
+        output_path.unlink(missing_ok=True)
     logger.warning("Marked stale recording as failed: %s %s", station["id"], start_time)
     return updated
+
+
+def invalidate_short_completed_recordings() -> int:
+    """Mark bogus 'completed' rows (2s clips etc.) as failed so retries can run."""
+    from app.stations import get_station_by_id
+
+    fixed = 0
+    with Session(engine) as session:
+        completed = session.exec(select(Recording).where(Recording.status == "completed")).all()
+        for recording in completed:
+            path = Path(recording.file_path)
+            if recording_file_is_valid(path):
+                duration = int(get_audio_duration(path))
+                if abs(duration - recording.duration_seconds) > 30:
+                    recording.duration_seconds = duration
+                    session.add(recording)
+                continue
+            station = get_station_by_id(recording.station_id)
+            if not station:
+                continue
+            save_recording_to_db(session, station, recording.start_time, path, "failed")
+            fixed += 1
+        session.commit()
+    if fixed:
+        logger.warning("Invalidated %s too-short completed recordings", fixed)
+    return fixed
 
 
 def finalize_all_stale_recordings() -> int:

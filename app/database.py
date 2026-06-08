@@ -59,6 +59,26 @@ def get_storage_status() -> dict:
     on_railway = bool(os.environ.get("RAILWAY_ENVIRONMENT"))
     persist_ok = bool(volume_mount) or not on_railway
 
+    recordings_bytes = 0
+    if RECORDINGS_DIR.exists():
+        for path in RECORDINGS_DIR.rglob("*.mp3"):
+            try:
+                recordings_bytes += path.stat().st_size
+            except OSError:
+                pass
+
+    disk_total = disk_used = disk_free = 0
+    usage_percent = None
+    try:
+        disk_total, disk_used, disk_free = shutil.disk_usage(RECORDINGS_DIR)
+        if disk_total > 0:
+            usage_percent = round(disk_used / disk_total * 100, 1)
+    except OSError:
+        pass
+
+    def _gb(n: int) -> float:
+        return round(n / (1024 ** 3), 2)
+
     return {
         "recordings_dir": str(RECORDINGS_DIR),
         "volume_mount": volume_mount or None,
@@ -70,6 +90,11 @@ def get_storage_status() -> dict:
         else 0,
         "backup_exists": STATIONS_BACKUP_PATH.exists(),
         "backup_station_count": backup_count,
+        "recordings_gb": _gb(recordings_bytes),
+        "disk_total_gb": _gb(disk_total),
+        "disk_used_gb": _gb(disk_used),
+        "disk_free_gb": _gb(disk_free),
+        "usage_percent": usage_percent,
     }
 
 

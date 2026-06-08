@@ -1,5 +1,6 @@
 import logging
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from sqlmodel import Session
@@ -8,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 from app.database import get_recording_for_hour, get_recordings
 from app.peaks import estimate_duration
-from app.recorder import finalize_stale_recording, get_partial_path_for_hour, is_hour_actively_recording
+from app.recorder import finalize_stale_recording, get_partial_path_for_hour, is_hour_actively_recording, recording_file_is_valid
 from app.stations import should_record_station
 
 
@@ -63,13 +64,17 @@ def build_hour_slots(
         recording_id = None
         duration_seconds = 3600
         if status == "completed" and recording:
-            playable = True
-            filename = recording.file_path.split("/")[-1]
-            audio_url = f"/recordings/{filename}"
-            download_url = audio_url
-            peaks_url = f"/api/peaks/{recording.id}"
-            recording_id = recording.id
-            duration_seconds = recording.duration_seconds or 3600
+            path = Path(recording.file_path)
+            if recording_file_is_valid(path):
+                playable = True
+                filename = recording.file_path.split("/")[-1]
+                audio_url = f"/recordings/{filename}"
+                download_url = audio_url
+                peaks_url = f"/api/peaks/{recording.id}"
+                recording_id = recording.id
+                duration_seconds = recording.duration_seconds or int(estimate_duration(path))
+            else:
+                status = "missing"
         elif status == "recording":
             partial = get_partial_path_for_hour(station, hour_start)
             playable = partial is not None and partial.exists() and partial.stat().st_size > 0

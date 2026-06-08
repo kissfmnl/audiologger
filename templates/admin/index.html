@@ -145,6 +145,20 @@
 </div>
 {% endif %}
 
+{% if storage.usage_percent is not none %}
+<div class="mb-5 rounded-xl border border-violet-100 bg-surface shadow-card p-4">
+    <div class="flex items-center justify-between gap-3 mb-2">
+        <p class="text-xs font-semibold text-heading">Opslag volume</p>
+        <p class="text-xs font-mono text-violet-600">{{ storage.usage_percent }}% vol</p>
+    </div>
+    <div class="h-2 rounded-full bg-violet-100 overflow-hidden">
+        <div class="h-full rounded-full {% if storage.usage_percent >= 90 %}bg-red-500{% elif storage.usage_percent >= 75 %}bg-amber-500{% else %}bg-violet-600{% endif %}"
+             style="width: {{ storage.usage_percent }}%"></div>
+    </div>
+    <p class="text-[11px] text-slate-500 mt-2">{{ storage.disk_used_gb }} / {{ storage.disk_total_gb }} GB · opnames {{ storage.recordings_gb }} GB</p>
+</div>
+{% endif %}
+
 {# ── Nieuwe zender ── #}
 <div id="section-add" class="scroll-mt-4 mb-8 rounded-xl border border-emerald-200 bg-slate-50 shadow-card overflow-hidden">
     <div class="px-5 py-3.5 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-teal-50 flex items-center gap-2">

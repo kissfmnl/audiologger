@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -13,16 +14,26 @@ from app.recorder import (
     finalize_all_stale_recordings,
     get_partial_path_for_hour,
     has_completed_recording,
+    invalidate_short_completed_recordings,
     record_station,
 )
 from app.retention import cleanup_expired_recordings
-from app.stations import get_station_by_id, load_stations, recording_start_time, should_record_station
+from app.stations import get_station_by_id, load_stations, should_record_station
 
 logger = logging.getLogger(__name__)
 scheduler = BackgroundScheduler()
-
+_recording_executor = ThreadPoolExecutor(max_workers=32, thread_name_prefix="record")
 
 RETRY_DELAYS_SECONDS = (90, 180, 300)
+
+
+def resolve_recording_hour(station: dict, force_start_time: str | None = None) -> datetime:
+    """Vast uur voor deze opname — niet opnieuw berekenen na wachten op een slot."""
+    if force_start_time:
+        return datetime.fromisoformat(force_start_time)
+    tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
+    now = datetime.now(tz)
+    return now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
 
 
 def _schedule_recording_retry(station: dict, start_time: datetime, attempt: int) -> None:
@@ -57,6 +68,35 @@ def _schedule_recording_retry(station: dict, start_time: datetime, attempt: int)
     )
 
 
+def _run_scheduled_record(station_id: str, start_time: datetime, attempt: int) -> None:
+    station = get_station_by_id(station_id)
+    if not station:
+        logger.warning("Station %s not found, skipping recording", station_id)
+        return
+
+    if not should_record_station(station):
+        logger.info("Skipped recording for %s (outside schedule/event window)", station_id)
+        return
+
+    if has_completed_recording(station_id, start_time):
+        logger.info("Hour already recorded for %s at %s", station_id, start_time)
+        return
+
+    try:
+        recording = record_station(station, start_time)
+        logger.info(
+            "Recorded %s -> %s (status: %s, %ss)",
+            station_id,
+            recording.file_path,
+            recording.status,
+            recording.duration_seconds,
+        )
+    except Exception as exc:
+        logger.warning("Recording failed for %s: %s", station_id, exc)
+        if not has_completed_recording(station_id, start_time):
+            _schedule_recording_retry(station, start_time, attempt)
+
+
 def scheduled_record(
     station_id: str,
     force_start_time: str | None = None,
@@ -67,31 +107,8 @@ def scheduled_record(
         logger.warning("Station %s not found, skipping recording", station_id)
         return
 
-    if not should_record_station(station):
-        logger.info("Skipped recording for %s (outside schedule/event window)", station_id)
-        return
-
-    if force_start_time:
-        start_time = datetime.fromisoformat(force_start_time)
-    else:
-        start_time = recording_start_time(station)
-
-    if has_completed_recording(station_id, start_time):
-        logger.info("Hour already recorded for %s at %s", station_id, start_time)
-        return
-
-    try:
-        recording = record_station(station, start_time)
-        logger.info(
-            "Recorded %s -> %s (status: %s)",
-            station_id,
-            recording.file_path,
-            recording.status,
-        )
-    except Exception as exc:
-        logger.warning("Recording failed for %s: %s", station_id, exc)
-        if not has_completed_recording(station_id, start_time):
-            _schedule_recording_retry(station, start_time, attempt)
+    start_time = resolve_recording_hour(station, force_start_time)
+    _recording_executor.submit(_run_scheduled_record, station_id, start_time, attempt)
 
 
 def next_whole_hour(station: dict, moment: datetime | None = None) -> datetime:
@@ -188,6 +205,13 @@ def reload_scheduler() -> BackgroundScheduler:
         replace_existing=True,
     )
 
+    scheduler.add_job(
+        invalidate_short_completed_recordings,
+        trigger=CronTrigger(minute="*/15"),
+        id="invalidate_short_recordings",
+        replace_existing=True,
+    )
+
     return scheduler
 
 
@@ -239,6 +263,9 @@ def retry_todays_failed_recordings() -> None:
 
 def setup_scheduler() -> BackgroundScheduler:
     scheduler_result = reload_scheduler()
+    invalidated = invalidate_short_completed_recordings()
+    if invalidated:
+        logger.info("Invalidated %s short completed recordings on startup", invalidated)
     retry_todays_failed_recordings()
     finalized = finalize_all_stale_recordings()
     if finalized:
@@ -250,3 +277,4 @@ def setup_scheduler() -> BackgroundScheduler:
 def shutdown_scheduler() -> None:
     if scheduler.running:
         scheduler.shutdown(wait=False)
+    _recording_executor.shutdown(wait=False)
