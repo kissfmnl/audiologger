@@ -126,7 +126,7 @@ def admin_logging_status(request: Request):
 
     next_recovery = "—"
     if recovery_job and recovery_job.next_run_time:
-        next_recovery = recovery_job.next_run_time.strftime("%H:%M")
+        next_recovery = recovery_job.next_run_time.strftime("%H:%M:%S")
 
     return templates.TemplateResponse(
         request,

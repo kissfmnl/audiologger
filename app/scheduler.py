@@ -199,7 +199,7 @@ def ensure_current_hour_recordings() -> int:
         if is_hour_actively_recording(station, hour_start, now):
             continue
 
-        delay = 5 + abs(hash(station["id"])) % 90
+        delay = 0
         _queue_record(
             station["id"],
             hour_start,
@@ -251,10 +251,9 @@ def reload_scheduler() -> BackgroundScheduler:
             logger.error("Invalid timezone for %s: %s", station["id"], tz_name)
             tz = ZoneInfo("Europe/Amsterdam")
 
-        stagger = abs(hash(station["id"])) % 45
         scheduler.add_job(
             scheduled_record,
-            trigger=CronTrigger(minute=0, second=stagger, timezone=tz),
+            trigger=CronTrigger(minute=0, second=0, timezone=tz),
             args=[station["id"]],
             id=f"record_{station['id']}",
             replace_existing=True,
@@ -292,7 +291,7 @@ def reload_scheduler() -> BackgroundScheduler:
 
     scheduler.add_job(
         hard_refresh_recordings,
-        trigger=CronTrigger(minute=2, timezone=ZoneInfo("Europe/Amsterdam")),
+        trigger=CronTrigger(minute=0, second=30, timezone=ZoneInfo("Europe/Amsterdam")),
         id="hourly_recording_recovery",
         replace_existing=True,
     )
