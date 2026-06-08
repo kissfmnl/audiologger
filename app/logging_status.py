@@ -39,10 +39,12 @@ def skip_reason(station: dict) -> str | None:
 
 
 def _recording_duration_seconds(recording: Recording) -> int:
+    if recording.duration_seconds and recording.duration_seconds > 0:
+        return recording.duration_seconds
     path = Path(recording.file_path)
     if path.exists() and path.stat().st_size > 0:
         return int(get_audio_duration(path))
-    return recording.duration_seconds or 0
+    return 0
 
 
 def get_hour_duration_audit(days_back: int = 3) -> dict:
@@ -53,19 +55,17 @@ def get_hour_duration_audit(days_back: int = 3) -> dict:
     with Session(engine) as session:
         recordings = session.exec(
             select(Recording)
-            .where(Recording.status == "completed")
+            .where(
+                Recording.status == "completed",
+                Recording.start_time >= cutoff,
+            )
             .order_by(Recording.start_time.desc())
         ).all()
 
     issues = []
     ok_count = 0
-    checked = 0
 
     for recording in recordings:
-        if recording.start_time < cutoff:
-            continue
-
-        checked += 1
         duration = _recording_duration_seconds(recording)
         delta = duration - HOUR_DURATION_TARGET
 
@@ -92,7 +92,7 @@ def get_hour_duration_audit(days_back: int = 3) -> dict:
         )
 
     return {
-        "checked": checked,
+        "checked": len(recordings),
         "ok_count": ok_count,
         "issue_count": len(issues),
         "issues": issues[:25],

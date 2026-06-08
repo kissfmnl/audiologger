@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 from app.database import get_recording_for_hour, get_recordings
 from app.peaks import estimate_duration
-from app.recorder import finalize_stale_recording, get_partial_path_for_hour, is_hour_actively_recording, recording_file_is_valid
+from app.recorder import finalize_stale_recording, get_partial_path_for_hour, is_hour_actively_recording, recording_is_playable
 from app.stations import should_record_station
 
 
@@ -65,7 +65,7 @@ def build_hour_slots(
         duration_seconds = 3600
         if status == "completed" and recording:
             path = Path(recording.file_path)
-            if recording_file_is_valid(path):
+            if recording_is_playable(path, recording.duration_seconds):
                 playable = True
                 filename = recording.file_path.split("/")[-1]
                 audio_url = f"/recordings/{filename}"

@@ -1,6 +1,7 @@
 import logging
 import os
 import shutil
+import time
 from datetime import date, datetime
 from pathlib import Path
 
@@ -44,8 +45,16 @@ engine = create_engine(
     echo=False,
 )
 
+_storage_status_cache: tuple[float, dict] | None = None
+_STORAGE_STATUS_TTL = 45.0
+
 
 def get_storage_status() -> dict:
+    global _storage_status_cache
+    now = time.monotonic()
+    if _storage_status_cache and now - _storage_status_cache[0] < _STORAGE_STATUS_TTL:
+        return _storage_status_cache[1]
+
     backup_count = 0
     if STATIONS_BACKUP_PATH.exists():
         try:
@@ -61,11 +70,15 @@ def get_storage_status() -> dict:
 
     recordings_bytes = 0
     if RECORDINGS_DIR.exists():
-        for path in RECORDINGS_DIR.rglob("*.mp3"):
-            try:
-                recordings_bytes += path.stat().st_size
-            except OSError:
-                pass
+        with Session(engine) as session:
+            rows = session.exec(select(Recording.file_size_mb).where(Recording.file_size_mb > 0)).all()
+        recordings_bytes = int(sum(rows) * 1024 * 1024)
+        if recordings_bytes <= 0:
+            for path in RECORDINGS_DIR.rglob("*.mp3"):
+                try:
+                    recordings_bytes += path.stat().st_size
+                except OSError:
+                    pass
 
     disk_total = disk_used = disk_free = 0
     usage_percent = None
@@ -79,7 +92,7 @@ def get_storage_status() -> dict:
     def _gb(n: int) -> float:
         return round(n / (1024 ** 3), 2)
 
-    return {
+    result = {
         "recordings_dir": str(RECORDINGS_DIR),
         "volume_mount": volume_mount or None,
         "on_railway": on_railway,
@@ -96,6 +109,8 @@ def get_storage_status() -> dict:
         "disk_free_gb": _gb(disk_free),
         "usage_percent": usage_percent,
     }
+    _storage_status_cache = (now, result)
+    return result
 
 
 def estimate_archive_storage_gb(

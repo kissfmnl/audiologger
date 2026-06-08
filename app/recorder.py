@@ -71,6 +71,19 @@ def recording_file_is_valid(path: Path, min_seconds: float = MIN_PLAYABLE_SECOND
     return duration >= min_seconds
 
 
+def recording_is_playable(
+    path: Path,
+    duration_seconds: int | None = None,
+    min_seconds: float = MIN_PLAYABLE_SECONDS,
+) -> bool:
+    """Snelle playable-check voor pagina's — geen ffprobe tenzij nodig."""
+    if not path.exists() or path.stat().st_size < MIN_COMPLETED_BYTES:
+        return False
+    if duration_seconds and duration_seconds >= min_seconds:
+        return True
+    return recording_file_is_valid(path, min_seconds)
+
+
 def min_required_seconds(station: dict, start_time: datetime, record_started_at: datetime) -> float:
     _, hour_end, tz = _hour_window(station, start_time)
     if record_started_at.tzinfo is None:
@@ -606,9 +619,21 @@ def invalidate_short_completed_recordings() -> int:
         completed = session.exec(select(Recording).where(Recording.status == "completed")).all()
         for recording in completed:
             path = Path(recording.file_path)
+            if not path.exists() or path.stat().st_size < MIN_COMPLETED_BYTES:
+                station = get_station_by_id(recording.station_id)
+                if not station:
+                    continue
+                save_recording_to_db(session, station, recording.start_time, path, "failed")
+                fixed += 1
+                continue
+
+            db_duration = recording.duration_seconds or 0
+            if db_duration >= MIN_PLAYABLE_SECONDS and db_duration <= RECORDING_DURATION_SECONDS + 45:
+                continue
+
             if recording_file_is_valid(path):
                 duration = int(cap_recording_duration(path, RECORDING_DURATION_SECONDS))
-                if abs(duration - recording.duration_seconds) > 30:
+                if abs(duration - db_duration) > 30:
                     recording.duration_seconds = duration
                     session.add(recording)
                 continue
