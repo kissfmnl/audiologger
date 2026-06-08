@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 STATIONS_CONFIG = BASE_DIR / "config" / "stations.yaml"
 STATION_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 DEFAULT_TIMEZONE = "Europe/Amsterdam"
-DEFAULT_RETENTION_DAYS = 7
+DEFAULT_RETENTION_DAYS = 5
 DEFAULT_EVENT_RETENTION_DAYS = 30
 MAX_RETENTION_DAYS = 365
 

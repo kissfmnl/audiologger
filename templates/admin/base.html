@@ -50,25 +50,25 @@
     <div class="flex min-h-screen">
         <aside class="hidden lg:flex w-56 shrink-0 flex-col bg-sidebar border-r border-violet-100 px-3 py-5">
             <div class="px-2 mb-6">
-                <a href="/admin" class="text-sm font-bold text-heading tracking-tight">ferryoomen</a>
+                <a href="/" class="text-sm font-bold text-heading tracking-tight">ferryoomen</a>
                 <p class="text-[10px] text-violet-400 mt-0.5 font-medium">AudioLogger</p>
             </div>
 
             <nav class="flex-1 space-y-5 overflow-y-auto">
+                <ul class="space-y-0.5">
+                    <li>
+                        <a href="/"
+                           class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition border
+                           {% if active_nav == 'home' %}bg-accent-light text-accent-muted border-accent-border{% else %}text-slate-600 hover:bg-violet-50 border-transparent{% endif %}">
+                            <svg class="w-4 h-4 shrink-0 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
+                            </svg>
+                            Dashboard (home)
+                        </a>
+                    </li>
+                </ul>
+
                 <div>
-                    <p class="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-violet-300">Website</p>
-                    <ul class="space-y-0.5 mb-4">
-                        <li>
-                            <a href="/admin/website"
-                               class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition border
-                               {% if active_nav == 'website' %}bg-accent-light text-accent-muted border-accent-border{% else %}text-slate-600 hover:bg-violet-50 border-transparent{% endif %}">
-                                <svg class="w-4 h-4 shrink-0 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/>
-                                </svg>
-                                Website
-                            </a>
-                        </li>
-                    </ul>
                     <p class="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-violet-300">Radio</p>
                     <ul class="space-y-0.5">
                         <li>
@@ -82,20 +82,13 @@
                             </a>
                         </li>
                         <li>
-                            <a href="/admin#section-add"
-                               class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-violet-50 transition border border-transparent">
-                                <span class="w-5 h-5 rounded-md bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold">+</span>
-                                Toevoegen
-                            </a>
-                        </li>
-                        <li>
-                            <a href="/admin#section-stations"
+                            <a href="/admin"
                                class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition border
                                {% if active_nav == 'stations' %}bg-accent-light text-accent-muted border-accent-border{% else %}text-slate-600 hover:bg-violet-50 border-transparent{% endif %}">
                                 <svg class="w-4 h-4 shrink-0 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
                                 </svg>
-                                Zenders
+                                Zenders beheren
                             </a>
                         </li>
                     </ul>
@@ -114,29 +107,34 @@
                                 Opslag
                             </a>
                         </li>
-                        <li>
-                            <a href="/"
-                               class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-violet-50 transition border border-transparent">
-                                <svg class="w-4 h-4 shrink-0 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
-                                </svg>
-                                Dashboard
-                            </a>
-                        </li>
                     </ul>
                 </div>
 
                 <div>
                     <p class="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-violet-300">Systeem</p>
-                    <form method="post" action="/admin/logout">
-                        <button type="submit"
-                                class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-violet-50 transition text-left border border-transparent">
-                            <svg class="w-4 h-4 shrink-0 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-                            </svg>
-                            Uitloggen
-                        </button>
-                    </form>
+                    <ul class="space-y-0.5">
+                        <li>
+                            <a href="/admin/website"
+                               class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition border
+                               {% if active_nav == 'website' %}bg-accent-light text-accent-muted border-accent-border{% else %}text-slate-600 hover:bg-violet-50 border-transparent{% endif %}">
+                                <svg class="w-4 h-4 shrink-0 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/>
+                                </svg>
+                                Beheer website
+                            </a>
+                        </li>
+                        <li>
+                            <form method="post" action="/admin/logout">
+                                <button type="submit"
+                                        class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-violet-50 transition text-left border border-transparent">
+                                    <svg class="w-4 h-4 shrink-0 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                                    </svg>
+                                    Uitloggen
+                                </button>
+                            </form>
+                        </li>
+                    </ul>
                 </div>
             </nav>
         </aside>
@@ -144,7 +142,7 @@
         <div class="flex-1 min-w-0">
             <header class="lg:hidden bg-slate-50 border-b border-violet-100 px-4 py-3 flex items-center justify-between">
                 <span class="text-sm font-bold text-heading">ferryoomen</span>
-                <a href="/" class="text-xs text-violet-500 hover:text-accent font-medium">Dashboard</a>
+                <a href="/" class="text-xs text-violet-500 hover:text-accent font-medium">Dashboard (home)</a>
             </header>
 
             <main class="px-4 sm:px-6 lg:px-8 py-5 sm:py-6 max-w-[960px]">

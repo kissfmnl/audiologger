@@ -183,7 +183,7 @@ def admin_storage(request: Request):
     storage = get_storage_status()
     capacity = storage_capacity_plan(
         storage.get("disk_total_gb") or 0,
-        station_count=20,
+        station_count=15,
         retention_days=5,
     )
     return templates.TemplateResponse(

@@ -44,14 +44,14 @@
 <div class="mb-6 rounded-xl border border-violet-100 bg-violet-50/40 shadow-card p-5">
     <h2 class="text-sm font-semibold text-heading mb-2">Opslag-planning (128 kbps MP3)</h2>
     <p class="text-xs text-slate-600 leading-relaxed">
-        <strong>20 zenders × 5 dagen</strong> ≈ <strong>{{ capacity.needed_gb }} GB</strong> nodig
+        <strong>15 zenders × 5 dagen</strong> ≈ <strong>{{ capacity.needed_gb }} GB</strong> nodig
         (~57,6 MB per station per uur).
         {% if capacity.fits %}
         Past op je volume van {{ storage.disk_total_gb }} GB
         {% if capacity.headroom_gb is not none %} ({{ capacity.headroom_gb }} GB over){% endif %}.
         {% else %}
         <span class="text-amber-900 font-medium">Past niet</span> op {{ storage.disk_total_gb }} GB —
-        max. ~{{ capacity.max_retention_days }} dagen voor 20 zenders, of ~{{ capacity.max_stations }} zenders voor 5 dagen.
+        max. ~{{ capacity.max_retention_days }} dagen voor 15 zenders, of ~{{ capacity.max_stations }} zenders voor 5 dagen.
         {% endif %}
     </p>
 </div>
@@ -97,7 +97,7 @@
                     <span class="font-medium text-heading">Ouder dan … dagen</span>
                     <input type="number" name="older_than_days" min="1" max="3650" value="7"
                            class="ml-1 w-16 px-2 py-0.5 rounded border border-violet-200 text-xs font-mono">
-                    <span class="text-slate-500 block">Standaard bewaartermijn per zender is ook 7 dagen</span>
+                    <span class="text-slate-500 block">Standaard bewaartermijn per zender is ook 5 dagen</span>
                 </span>
             </label>
             <label class="flex items-start gap-2 cursor-pointer">
@@ -131,7 +131,7 @@
 
 <section class="rounded-xl border border-violet-100 bg-surface shadow-card p-5">
     <h2 class="text-sm font-semibold text-heading mb-1">Automatische bewaring</h2>
-    <p class="text-xs text-slate-500 mb-4">Verwijdert opnames die ouder zijn dan de bewaartermijn per zender (standaard 7 dagen, event-zenders instelbaar).</p>
+    <p class="text-xs text-slate-500 mb-4">Verwijdert opnames die ouder zijn dan de bewaartermijn per zender (standaard 5 dagen, event-zenders instelbaar).</p>
     <form method="post" action="/admin/storage/retention">
         <button type="submit" class="px-4 py-2 rounded-lg bg-violet-100 text-violet-700 text-sm font-medium hover:bg-violet-200 transition">
             Bewaring nu uitvoeren
