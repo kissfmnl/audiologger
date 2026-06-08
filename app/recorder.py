@@ -162,6 +162,7 @@ def has_completed_recording(station_id: str, start_time: datetime) -> bool:
 
 def _ffmpeg_input_args(url: str) -> list[str]:
     return [
+        "-re",
         "-hide_banner",
         "-loglevel",
         "warning",
@@ -242,6 +243,49 @@ def run_ffmpeg_record(
         return False, "ffmpeg not found on system PATH"
     except OSError as exc:
         return False, str(exc)
+
+
+def cap_recording_duration(
+    path: Path,
+    max_seconds: float = RECORDING_DURATION_SECONDS,
+) -> float:
+    """Trim MP3 to max_seconds when capture ran over the hour budget."""
+    duration = get_audio_duration(path)
+    if duration <= max_seconds + 1.5:
+        return duration
+
+    temp_path = path.with_suffix(".trim.mp3")
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-nostdin",
+        "-i",
+        str(path),
+        "-t",
+        str(max_seconds),
+        "-c",
+        "copy",
+        "-y",
+        str(temp_path),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode != 0 or not temp_path.exists():
+            logger.warning(
+                "Could not trim %s to %ss: %s",
+                path.name,
+                max_seconds,
+                (result.stderr or result.stdout)[-300:],
+            )
+            return duration
+        shutil.move(str(temp_path), str(path))
+        return get_audio_duration(path)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.warning("Trim failed for %s: %s", path.name, exc)
+        temp_path.unlink(missing_ok=True)
+        return duration
 
 
 def concat_mp3_segments(segments: list[Path], output_path: Path) -> bool:
@@ -421,9 +465,20 @@ def _record_station_locked(station: dict, start_time: datetime, tz: ZoneInfo) ->
         save_recording_to_db(session, station, start_time, output_path, "recording")
 
     try:
-        while datetime.now(tz) < hour_end:
-            remaining = int((hour_end - datetime.now(tz)).total_seconds())
-            if remaining < 1:
+        captured_seconds = 0.0
+        max_capture_seconds = min(
+            RECORDING_DURATION_SECONDS,
+            max(0.0, (hour_end - record_started_at).total_seconds()),
+        )
+
+        while (
+            captured_seconds < max_capture_seconds - 0.5
+            and datetime.now(tz) < hour_end
+        ):
+            remaining_audio = max_capture_seconds - captured_seconds
+            remaining_wall = (hour_end - datetime.now(tz)).total_seconds()
+            segment_duration = int(min(remaining_audio, remaining_wall))
+            if segment_duration < 1:
                 break
 
             segment_path = parts_dir / f"part{segment_idx:04d}.mp3"
@@ -431,22 +486,26 @@ def _record_station_locked(station: dict, start_time: datetime, tz: ZoneInfo) ->
                 station["url"],
                 segment_path,
                 log_path,
-                duration_seconds=remaining,
+                duration_seconds=segment_duration,
             )
 
             if segment_path.exists() and segment_path.stat().st_size >= MIN_SEGMENT_BYTES:
+                segment_seconds = get_audio_duration(segment_path)
                 segments.append(segment_path)
                 segment_idx += 1
+                captured_seconds += segment_seconds
                 with Session(engine) as session:
                     save_recording_to_db(session, station, start_time, output_path, "recording")
             elif segment_path.exists() and segment_path.stat().st_size == 0:
                 segment_path.unlink(missing_ok=True)
 
-            # Stream kan na enkele seconden stoppen — doorloggen tot het uur voorbij is.
+            # Stream kan na enkele seconden stoppen — doorloggen tot budget of uur-einde.
             if not success:
                 time.sleep(2)
 
         concat_ok = bool(segments) and concat_mp3_segments(segments, output_path)
+        if concat_ok and output_path.exists():
+            cap_recording_duration(output_path, max_capture_seconds)
         valid = concat_ok and recording_file_is_valid(output_path, min_seconds)
         status = "completed" if valid else "failed"
 
@@ -501,7 +560,7 @@ def finalize_stale_recording(
     min_seconds = MIN_PLAYABLE_SECONDS
 
     if output_path.exists() and recording_file_is_valid(output_path, min_seconds):
-        duration = int(get_audio_duration(output_path))
+        duration = int(cap_recording_duration(output_path, RECORDING_DURATION_SECONDS))
         updated = save_recording_to_db(
             session, station, start_time, output_path, "completed", actual_duration=duration
         )
@@ -518,6 +577,7 @@ def finalize_stale_recording(
         ]
 
     if segments and concat_mp3_segments(segments, output_path):
+        cap_recording_duration(output_path, RECORDING_DURATION_SECONDS)
         if recording_file_is_valid(output_path, min_seconds):
             duration = int(get_audio_duration(output_path))
             updated = save_recording_to_db(
@@ -547,7 +607,7 @@ def invalidate_short_completed_recordings() -> int:
         for recording in completed:
             path = Path(recording.file_path)
             if recording_file_is_valid(path):
-                duration = int(get_audio_duration(path))
+                duration = int(cap_recording_duration(path, RECORDING_DURATION_SECONDS))
                 if abs(duration - recording.duration_seconds) > 30:
                     recording.duration_seconds = duration
                     session.add(recording)
