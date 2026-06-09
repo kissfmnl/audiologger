@@ -11,6 +11,7 @@ from sqlmodel import Session
 
 from app.admin_auth import is_authenticated, login, logout
 from app.database import BASE_DIR, get_session, get_storage_status, storage_capacity_plan
+from app.dropbox_upload import dropbox_configured
 from app.logging_status import get_hour_duration_audit, get_logging_overview
 from app.retention import (
     cleanup_expired_recordings,
@@ -296,6 +297,8 @@ def admin_dashboard(request: Request):
             "notice": request.query_params.get("notice", ""),
             "first_recording": request.query_params.get("first", ""),
             "storage": get_storage_status(),
+            "dropbox_configured": dropbox_configured(),
+            "dropbox_archive_count": sum(1 for s in load_stations() if s.get("dropbox_archive")),
         },
     )
 
@@ -314,6 +317,7 @@ def admin_create_station(
     event_end_date: str = Form(default=""),
     retention_days: str = Form(default=""),
     active: str | None = Form(default=None),
+    dropbox_archive: str | None = Form(default=None),
     logo_data: str = Form(default=""),
 ):
     redirect = admin_redirect_if_needed(request)
@@ -335,6 +339,7 @@ def admin_create_station(
             event_end_date=event_end_date or None,
             retention_days=retention_days or None,
             active=active == "on",
+            dropbox_archive=dropbox_archive == "on",
         )
         if logo_data:
             _save_logo_from_data_url(station_id, logo_data)
@@ -367,6 +372,7 @@ def admin_update_station(
     event_end_date: str = Form(default=""),
     retention_days: str = Form(default=""),
     active: str | None = Form(default=None),
+    dropbox_archive: str | None = Form(default=None),
     logo_data: str = Form(default=""),
 ):
     redirect = admin_redirect_if_needed(request)
@@ -386,6 +392,7 @@ def admin_update_station(
             event_end_date=event_end_date or None,
             retention_days=retention_days or None,
             active=active == "on",
+            dropbox_archive=dropbox_archive == "on",
         )
         if logo_data:
             _save_logo_from_data_url(station_id, logo_data)

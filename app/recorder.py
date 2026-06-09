@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from sqlmodel import Session, select
 
 from app.database import LOGS_DIR, RECORDINGS_DIR, engine
+from app.dropbox_upload import ensure_dropbox_upload_async
 from app.galio import ensure_galio_async
 from app.peaks import ensure_peaks_async, get_audio_duration, peaks_cache_path
 from app.models import Recording
@@ -547,6 +548,7 @@ def _record_station_locked(station: dict, start_time: datetime, tz: ZoneInfo) ->
 
         ensure_peaks_async(output_path)
         ensure_galio_async(output_path)
+        ensure_dropbox_upload_async(output_path, station, recording.id if recording else None)
         return recording
     finally:
         shutil.rmtree(parts_dir, ignore_errors=True)
@@ -579,6 +581,7 @@ def finalize_stale_recording(
         )
         ensure_peaks_async(output_path)
         ensure_galio_async(output_path)
+        ensure_dropbox_upload_async(output_path, station, updated.id if updated else None)
         logger.info("Finalized stale recording as completed: %s %s", station["id"], start_time)
         return updated
 
@@ -598,6 +601,7 @@ def finalize_stale_recording(
             )
             ensure_peaks_async(output_path)
             ensure_galio_async(output_path)
+            ensure_dropbox_upload_async(output_path, station, updated.id if updated else None)
             shutil.rmtree(parts_dir, ignore_errors=True)
             logger.info("Salvaged stale recording from parts: %s %s", station["id"], start_time)
             return updated

@@ -213,6 +213,7 @@ def station_to_dict(station: Station) -> dict:
         "retention_days": station.retention_days,
         "active": station.active,
         "logo_path": station.logo_path,
+        "dropbox_archive": bool(station.dropbox_archive),
         "logo_url": logo_url,
     }
     data["schedule_label"] = format_schedule_label(data)
@@ -235,6 +236,7 @@ def _station_backup_row(station: Station) -> dict:
         "retention_days": station.retention_days,
         "active": station.active,
         "logo_path": station.logo_path,
+        "dropbox_archive": station.dropbox_archive,
     }
 
 
@@ -271,6 +273,7 @@ def _restore_from_backup_file(path: Path) -> int:
                     retention_days=item.get("retention_days"),
                     active=bool(item.get("active", True)),
                     logo_path=item.get("logo_path"),
+                    dropbox_archive=bool(item.get("dropbox_archive", False)),
                 )
             )
         session.commit()
@@ -340,6 +343,7 @@ def migrate_station_schema() -> None:
         "event_start_date": "TEXT",
         "event_end_date": "TEXT",
         "retention_days": "INTEGER",
+        "dropbox_archive": "INTEGER DEFAULT 0",
     }
 
     with engine.connect() as conn:
@@ -527,6 +531,7 @@ def create_station(
     event_end_date: str | None = None,
     retention_days: str | int | None = None,
     active: bool = True,
+    dropbox_archive: bool = False,
 ) -> Station:
     validate_station_id(station_id)
     url = normalize_url(url)
@@ -554,6 +559,7 @@ def create_station(
         event_end_date=event_end_date,
         retention_days=parsed_retention,
         active=active,
+        dropbox_archive=dropbox_archive,
     )
     session.add(station)
     session.commit()
@@ -574,6 +580,7 @@ def update_station(
     event_end_date: str | None,
     retention_days: str | int | None,
     active: bool,
+    dropbox_archive: bool = False,
 ) -> Station:
     station = session.get(Station, station_id)
     if not station:
@@ -599,6 +606,7 @@ def update_station(
     station.event_end_date = event_end_date
     station.retention_days = parsed_retention
     station.active = active
+    station.dropbox_archive = dropbox_archive
 
     session.add(station)
     session.commit()

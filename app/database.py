@@ -185,6 +185,7 @@ def migrate_database_location() -> None:
 def migrate_recording_schema() -> None:
     columns = {
         "peaks_file": "TEXT",
+        "dropbox_path": "TEXT",
     }
 
     with engine.connect() as conn:

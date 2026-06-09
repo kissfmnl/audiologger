@@ -148,6 +148,11 @@
     Database is leeg maar er is een backup met {{ storage.backup_station_count }} zender(s).
     Herstart de service om automatisch te herstellen, of voeg zenders opnieuw toe.
 </div>
+{% elif dropbox_archive_count > 0 and not dropbox_configured %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-amber-300 bg-amber-50 text-xs text-amber-900">
+    <strong>Dropbox niet geconfigureerd.</strong> {{ dropbox_archive_count }} zender(s) staan op Dropbox-archief,
+    maar <code class="font-mono">DROPBOX_ACCESS_TOKEN</code> ontbreekt in Railway. Uploads worden overgeslagen.
+</div>
 {% endif %}
 
 {% if storage.usage_percent is not none %}
@@ -226,6 +231,10 @@
                     <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
                         <input type="checkbox" name="active" checked class="rounded accent-violet-600">
                         <span class="font-medium">Direct actief</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                        <input type="checkbox" name="dropbox_archive" class="rounded accent-violet-600">
+                        <span class="font-medium">Dropbox-archief</span>
                     </label>
                 </div>
                 <div class="sm:col-span-2">
@@ -306,6 +315,9 @@
                             {% if station.is_event %}
                             <span class="badge-event">Event</span>
                             {% endif %}
+                            {% if station.dropbox_archive %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-blue-100 text-blue-800">Dropbox</span>
+                            {% endif %}
                         </div>
                         <p class="text-[11px] font-mono text-violet-400 mt-0.5 truncate">{{ station.id }} · {{ station.timezone }}</p>
                     </div>
@@ -330,7 +342,7 @@
                             </div>
                             <div class="flex gap-1.5 sm:col-span-2">
                                 <dt class="text-slate-400 shrink-0">Bewaring</dt>
-                                <dd class="text-slate-600">{{ station.retention_label }}</dd>
+                                <dd class="text-slate-600">{{ station.retention_label }}{% if station.dropbox_archive %} · permanent op Dropbox{% endif %}</dd>
                             </div>
                             <div class="flex gap-1.5 sm:col-span-2">
                                 <dt class="text-slate-400 shrink-0">Schema</dt>
@@ -411,6 +423,11 @@
                             <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
                                 <input type="checkbox" name="active" class="rounded accent-violet-600" {% if station.active %}checked{% endif %}>
                                 <span class="font-medium">Actief</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                                <input type="checkbox" name="dropbox_archive" class="rounded accent-violet-600"
+                                       {% if station.dropbox_archive %}checked{% endif %}>
+                                <span class="font-medium">Dropbox-archief</span>
                             </label>
                         </div>
                         <div class="sm:col-span-2">

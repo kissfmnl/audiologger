@@ -18,6 +18,7 @@ class Station(SQLModel, table=True):
     retention_days: Optional[int] = Field(default=None)
     active: bool = Field(default=True)
     logo_path: Optional[str] = Field(default=None)
+    dropbox_archive: bool = Field(default=False)
 
 
 class Recording(SQLModel, table=True):
@@ -32,3 +33,4 @@ class Recording(SQLModel, table=True):
     file_size_mb: float
     status: str = Field(default="completed", index=True)
     peaks_file: Optional[str] = Field(default=None)
+    dropbox_path: Optional[str] = Field(default=None)
