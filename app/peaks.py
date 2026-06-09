@@ -477,14 +477,19 @@ def read_peaks_region(
 def _decode_peaks_broadcast(
     path: Path, num_points: int = PEAK_POINTS
 ) -> tuple[list[float], float]:
-    """Broadcast-style peaks: 8 kHz mono PCM → max-abs buckets (~8000 points)."""
+    """Broadcast-style peaks: 8 kHz mono PCM → max-abs buckets (~8000 points).
+
+    Streams PCM and buckets on the fly so a 1-hour file does not load ~28M
+    floats into memory (which OOMs small Railway instances).
+    """
     duration = max(get_audio_duration(path), 1.0)
+    samples_per_peak = max(1, int(duration * PEAK_DECODE_SAMPLE_RATE / num_points))
     try:
         process = subprocess.Popen(
             [
                 "ffmpeg",
                 "-threads",
-                "0",
+                "1",
                 "-nostdin",
                 "-hide_banner",
                 "-loglevel",
@@ -506,35 +511,41 @@ def _decode_peaks_broadcast(
         logger.warning("ffmpeg broadcast peak decode failed for %s: %s", path, exc)
         return [], duration
 
-    samples: list[float] = []
+    peaks: list[float] = []
+    bar_max = 0.0
+    samples_in_bar = 0
     buffer = b""
     assert process.stdout is not None
-    while True:
-        chunk = process.stdout.read(262144)
-        if not chunk:
-            break
-        buffer += chunk
-        offset = 0
-        while offset + 4 <= len(buffer):
-            samples.append(abs(struct.unpack_from("<f", buffer, offset)[0]))
-            offset += 4
-        buffer = buffer[offset:]
-
     try:
-        process.terminate()
-        process.wait(timeout=2)
-    except (subprocess.TimeoutExpired, OSError):
-        process.kill()
+        while True:
+            chunk = process.stdout.read(262144)
+            if not chunk:
+                break
+            buffer += chunk
+            offset = 0
+            while offset + 4 <= len(buffer):
+                if len(peaks) < num_points:
+                    sample = abs(struct.unpack_from("<f", buffer, offset)[0])
+                    bar_max = max(bar_max, sample)
+                    samples_in_bar += 1
+                    if samples_in_bar >= samples_per_peak:
+                        peaks.append(bar_max)
+                        bar_max = 0.0
+                        samples_in_bar = 0
+                offset += 4
+            buffer = buffer[offset:]
+    finally:
+        try:
+            process.terminate()
+            process.wait(timeout=5)
+        except (subprocess.TimeoutExpired, OSError):
+            process.kill()
 
-    if not samples:
+    if bar_max > 0 and len(peaks) < num_points:
+        peaks.append(bar_max)
+
+    if not peaks:
         return [], duration
-
-    chunk_size = max(1, len(samples) // num_points)
-    peaks: list[float] = []
-    for index in range(0, len(samples), chunk_size):
-        window = samples[index : index + chunk_size]
-        if window:
-            peaks.append(max(window))
 
     peaks = peaks[:num_points]
     max_peak = max(peaks) if peaks else 0.0
@@ -570,8 +581,8 @@ def load_cached_peaks(path: Path) -> tuple[list[float], float] | None:
             return None
         peaks = cache.get("peaks") or cache.get("wire_peaks") or []
         duration = float(cache.get("duration", 3600))
-        if peaks and len(peaks) >= PEAK_POINTS:
-            return peaks[:PEAK_POINTS], duration
+        if peaks:
+            return peaks, duration
     except (OSError, ValueError, TypeError):
         return None
     return None
@@ -646,10 +657,18 @@ def read_peaks_fast(path: Path, max_wait: float = 0.0) -> dict:
     }
 
 
+def _needs_peak_upgrade(path: Path) -> bool:
+    cached = load_cached_peaks(path)
+    if not cached:
+        return True
+    peaks, _ = cached
+    return len(peaks) < PEAK_POINTS
+
+
 def ensure_peaks(path: Path) -> None:
     if not path.exists() or path.stat().st_size == 0:
         return
-    if load_cached_peaks(path):
+    if not _needs_peak_upgrade(path):
         return
     peaks, duration = _decode_peaks(path, PEAK_POINTS)
     if peaks:
@@ -661,14 +680,21 @@ def ensure_peaks_async(path: Path) -> None:
     threading.Thread(target=ensure_peaks, args=(path,), daemon=True).start()
 
 
+WARMUP_MAX_FILES = 2
+
+
 def warm_missing_peaks(recordings_dir: Path, workers: int = 1) -> None:
+    """Warm only files with no cache. Upgrades run lazily on first API access."""
     pending = [
         audio_path
         for audio_path in sorted(recordings_dir.glob("*.mp3"))
-        if not load_cached_peaks(audio_path)
+        if load_cached_peaks(audio_path) is None
     ]
     if not pending:
         return
+
+    pending = pending[:WARMUP_MAX_FILES]
+    logger.info("Peaks warmup: %d file(s) without cache", len(pending))
 
     def _warm(audio_path: Path) -> None:
         try:
