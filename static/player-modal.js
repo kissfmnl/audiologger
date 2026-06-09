@@ -39,6 +39,7 @@
     const WHEEL_ZOOM_SENSITIVITY = 0.007;
     const KEYBOARD_ZOOM_FACTOR = 0.54;
     const PEAK_SAMPLE_RATE = 8000;
+    const TARGET_PEAK_POINTS = 8000;
     const ZOOM_SAMPLES_PER_PIXEL = [512, 1024, 2048, 4096];
     const REGION_MAX_BARS = 8192;
     const DRAG_SELECT_THRESHOLD_PX = 5;
@@ -330,7 +331,7 @@
         }
         const width = Math.max(1, canvas.width);
         const peaksInView = Math.max(1, Math.floor(peaks.length * viewSpan));
-        return peaksInView < width * 0.85;
+        return peaksInView < width * 1.5;
     }
 
     function getSamplesPerPixel() {
@@ -351,22 +352,55 @@
         return ZOOM_SAMPLES_PER_PIXEL[ZOOM_SAMPLES_PER_PIXEL.length - 1];
     }
 
-    function bucketPeaksMax(source, width) {
-        const samples = new Array(width);
+    function normalizePeakEntry(entry) {
+        if (Array.isArray(entry)) {
+            return [Number(entry[0]) || 0, Number(entry[1]) || 0];
+        }
+        const value = Number(entry) || 0;
+        return [-value, value];
+    }
+
+    function peakPointCount(data) {
+        return data?.peak_points || peakValues(data).length || 0;
+    }
+
+    function peaksNeedUpgrade(data) {
+        const count = peakPointCount(data);
+        return count > 0 && count < TARGET_PEAK_POINTS;
+    }
+
+    function bucketPeaksEnvelope(source, width) {
+        const mins = new Array(width).fill(0);
+        const maxs = new Array(width).fill(0);
         const srcLen = source.length;
         if (!srcLen || !width) {
-            return samples;
+            return { mins, maxs };
         }
         for (let x = 0; x < width; x += 1) {
             const from = Math.floor((x / width) * srcLen);
             const to = Math.max(from + 1, Math.ceil(((x + 1) / width) * srcLen));
-            let max = 0;
+            let colMin = 0;
+            let colMax = 0;
+            let hasValue = false;
             for (let i = from; i < to; i += 1) {
-                max = Math.max(max, source[i] || 0);
+                const [lo, hi] = normalizePeakEntry(source[i]);
+                if (!hasValue) {
+                    colMin = lo;
+                    colMax = hi;
+                    hasValue = true;
+                } else {
+                    colMin = Math.min(colMin, lo);
+                    colMax = Math.max(colMax, hi);
+                }
             }
-            samples[x] = max;
+            mins[x] = colMin;
+            maxs[x] = colMax;
         }
-        return samples;
+        return { mins, maxs };
+    }
+
+    function getZoomViewEnvelope(width) {
+        return bucketPeaksEnvelope(getPeaksSliceForView(), width);
     }
 
     function getPeaksSliceForView() {
@@ -379,7 +413,8 @@
     }
 
     function getZoomViewSamples(width) {
-        return bucketPeaksMax(getPeaksSliceForView(), width);
+        const { maxs } = getZoomViewEnvelope(width);
+        return maxs;
     }
 
     function detailPeaksMatchView() {
@@ -466,8 +501,58 @@
         }
     }
 
-    function detailPeaksToCanvas(source, width) {
-        return bucketPeaksMax(source, width);
+    function detailPeaksToEnvelope(source, width) {
+        return bucketPeaksEnvelope(source, width);
+    }
+
+    function drawEnvelopeWave(mins, maxs, width, height, mid, color, clipEndX) {
+        if (!maxs.length) {
+            return;
+        }
+
+        ctx.save();
+        if (clipEndX !== null) {
+            ctx.beginPath();
+            ctx.rect(0, 0, clipEndX, height);
+            ctx.clip();
+        }
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(0, mid);
+        for (let x = 0; x < width; x += 1) {
+            ctx.lineTo(x + 0.5, mid - maxs[x] * mid * 0.96);
+        }
+        for (let x = width - 1; x >= 0; x -= 1) {
+            ctx.lineTo(x + 0.5, mid - mins[x] * mid * 0.96);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function drawEnvelopeWaveOnContext(targetCtx, mins, maxs, width, height, mid, color, clipEndX) {
+        if (!maxs.length) {
+            return;
+        }
+        targetCtx.save();
+        if (clipEndX !== null) {
+            targetCtx.beginPath();
+            targetCtx.rect(0, 0, clipEndX, height);
+            targetCtx.clip();
+        }
+        targetCtx.fillStyle = color;
+        targetCtx.beginPath();
+        targetCtx.moveTo(0, mid);
+        for (let x = 0; x < width; x += 1) {
+            targetCtx.lineTo(x + 0.5, mid - maxs[x] * mid * 0.96);
+        }
+        for (let x = width - 1; x >= 0; x -= 1) {
+            targetCtx.lineTo(x + 0.5, mid - mins[x] * mid * 0.96);
+        }
+        targetCtx.closePath();
+        targetCtx.fill();
+        targetCtx.restore();
     }
 
     function drawFilledWave(samples, width, height, mid, color, clipEndX) {
@@ -550,23 +635,15 @@
         }
 
         const useDetail = shouldUseDetailPeaks() && detailPeaksMatchView();
-        const useMinMax = useDetail || viewSpan < 1 - 1e-9;
-        const samples = useDetail
-            ? detailPeaksToCanvas(detailPeaks, width)
-            : getZoomViewSamples(width);
+        const envelope = useDetail
+            ? detailPeaksToEnvelope(detailPeaks, width)
+            : getZoomViewEnvelope(width);
         const progress = timeToRatio(audio ? audio.currentTime : 0);
         const playheadX = ratioToCanvasX(progress);
 
-        if (useMinMax) {
-            drawMinMaxWave(samples, width, waveHeight, mid, WAVE_COLOR_IDLE, null);
-            if (playheadX > 0) {
-                drawMinMaxWave(samples, width, waveHeight, mid, WAVE_COLOR_PLAYED, playheadX);
-            }
-        } else {
-            drawFilledWave(samples, width, waveHeight, mid, WAVE_COLOR_IDLE, null);
-            if (playheadX > 0) {
-                drawFilledWave(samples, width, waveHeight, mid, WAVE_COLOR_PLAYED, playheadX);
-            }
+        drawEnvelopeWave(envelope.mins, envelope.maxs, width, waveHeight, mid, WAVE_COLOR_IDLE, null);
+        if (playheadX > 0) {
+            drawEnvelopeWave(envelope.mins, envelope.maxs, width, waveHeight, mid, WAVE_COLOR_PLAYED, playheadX);
         }
 
         if (selectionRegion && duration > 0) {
@@ -636,8 +713,20 @@
         const mid = height / 2;
         overviewCtx.clearRect(0, 0, width, height);
 
-        const samples = bucketPeaksMax(peaks, width);
-        drawFilledWaveOnContext(overviewCtx, samples, width, height, mid, WAVE_COLOR_IDLE, null);
+        const overviewEnvelope = bucketPeaksEnvelope(peaks, width);
+        overviewCtx.save();
+        overviewCtx.globalAlpha = 0.35;
+        drawEnvelopeWaveOnContext(
+            overviewCtx,
+            overviewEnvelope.mins,
+            overviewEnvelope.maxs,
+            width,
+            height,
+            mid,
+            WAVE_COLOR_PLAYED,
+            null,
+        );
+        overviewCtx.restore();
 
         const span = getViewSpan();
         const left = viewStart * width;
@@ -996,6 +1085,9 @@
     }
 
     function peakValues(data) {
+        if (Array.isArray(data?.data) && data.data.length) {
+            return data.data;
+        }
         return data?.peaks || [];
     }
 
@@ -1006,6 +1098,38 @@
         refreshZoomLimits();
         resizeCanvas();
         revealControls();
+        if (peaksNeedUpgrade(data)) {
+            pollPeakUpgrade();
+        }
+    }
+
+    function pollPeakUpgrade() {
+        if (!peaksUrl) {
+            return;
+        }
+        const started = Date.now();
+        const attempt = async () => {
+            if (!peaksUrl || Date.now() - started > 90000) {
+                return;
+            }
+            try {
+                const data = await fetchPeaks(peaksUrl, true);
+                if (peakPointCount(data) >= TARGET_PEAK_POINTS && data?.precise) {
+                    peaksCache.set(peaksUrl, { ...(peaksCache.get(peaksUrl) || {}), ...data });
+                    peaks = peakValues(data);
+                    duration = data.duration || duration;
+                    totalTimeEl.textContent = formatTime(duration);
+                    refreshZoomLimits();
+                    drawWaveform();
+                    scheduleDetailPeaksFetch();
+                    return;
+                }
+            } catch {
+                // retry
+            }
+            setTimeout(attempt, 2500);
+        };
+        setTimeout(attempt, 2500);
     }
 
     function pointerToFocusRatio(event) {

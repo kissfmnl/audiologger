@@ -52,13 +52,24 @@ def peaks_cache_exists(path: Path) -> bool:
         return False
 
 
-def _wire_response(peaks: list[float], duration: float, precise: bool) -> dict:
+def _normalize_peak_pairs(peaks: list) -> list[list[float]]:
+    """Convert legacy scalar peaks or pairs into [min, max] pairs."""
+    if not peaks:
+        return []
+    if isinstance(peaks[0], (list, tuple)):
+        return [[float(p[0]), float(p[1])] for p in peaks]
+    return [[-float(p), float(p)] for p in peaks]
+
+
+def _wire_response(peaks: list, duration: float, precise: bool) -> dict:
+    pairs = _normalize_peak_pairs(peaks)
     return {
-        "peaks": peaks,
+        "peaks": pairs,
+        "data": pairs,
         "duration": duration,
         "ready": True,
         "precise": precise,
-        "peak_points": len(peaks),
+        "peak_points": len(pairs),
     }
 
 
@@ -126,22 +137,25 @@ def get_audio_duration(path: Path) -> float:
     return estimate_duration(path)
 
 
-def _parse_audiowaveform_json(payload: dict) -> list[float]:
+def _parse_audiowaveform_json(payload: dict) -> list[list[float]]:
     raw = payload.get("data", [])
     channels = int(payload.get("channels", 1) or 1)
     bits = int(payload.get("bits", 8) or 8)
-    max_val = 128 if bits == 8 else 32768
+    zero = 128 if bits == 8 else 32768
+    scale = 128.0 if bits == 8 else 32768.0
     stride = 2 * channels
-    peaks: list[float] = []
+    peaks: list[list[float]] = []
 
     for index in range(0, len(raw) - 1, stride):
-        minimum = abs(int(raw[index]))
-        maximum = abs(int(raw[index + 1])) if index + 1 < len(raw) else 0
-        peaks.append(max(minimum, maximum) / max_val)
+        lo = (int(raw[index]) - zero) / scale
+        hi = (int(raw[index + 1]) - zero) / scale
+        peaks.append([lo, hi])
 
-    max_peak = max(peaks) if peaks else 0.0
-    if max_peak > 0:
-        peaks = [round(peak / max_peak, 4) for peak in peaks]
+    max_abs = 0.0
+    for lo, hi in peaks:
+        max_abs = max(max_abs, abs(lo), abs(hi))
+    if max_abs > 0:
+        peaks = [[round(lo / max_abs, 4), round(hi / max_abs, 4)] for lo, hi in peaks]
     return peaks
 
 
@@ -465,7 +479,7 @@ def read_peaks_region(
         }
 
     return {
-        "peaks": peaks,
+        "peaks": _normalize_peak_pairs(peaks),
         "duration": duration,
         "ready": True,
         "precise": True,
@@ -511,8 +525,9 @@ def _decode_peaks_broadcast(
         logger.warning("ffmpeg broadcast peak decode failed for %s: %s", path, exc)
         return [], duration
 
-    peaks: list[float] = []
-    bar_max = 0.0
+    peaks: list[list[float]] = []
+    bar_min = float("inf")
+    bar_max = float("-inf")
     samples_in_bar = 0
     buffer = b""
     assert process.stdout is not None
@@ -525,12 +540,14 @@ def _decode_peaks_broadcast(
             offset = 0
             while offset + 4 <= len(buffer):
                 if len(peaks) < num_points:
-                    sample = abs(struct.unpack_from("<f", buffer, offset)[0])
+                    sample = struct.unpack_from("<f", buffer, offset)[0]
+                    bar_min = min(bar_min, sample)
                     bar_max = max(bar_max, sample)
                     samples_in_bar += 1
                     if samples_in_bar >= samples_per_peak:
-                        peaks.append(bar_max)
-                        bar_max = 0.0
+                        peaks.append([bar_min, bar_max])
+                        bar_min = float("inf")
+                        bar_max = float("-inf")
                         samples_in_bar = 0
                 offset += 4
             buffer = buffer[offset:]
@@ -541,31 +558,34 @@ def _decode_peaks_broadcast(
         except (subprocess.TimeoutExpired, OSError):
             process.kill()
 
-    if bar_max > 0 and len(peaks) < num_points:
-        peaks.append(bar_max)
+    if samples_in_bar and len(peaks) < num_points:
+        peaks.append([bar_min, bar_max])
 
     if not peaks:
         return [], duration
 
     peaks = peaks[:num_points]
-    max_peak = max(peaks) if peaks else 0.0
-    if max_peak > 0:
-        peaks = [round(peak / max_peak, 4) for peak in peaks]
+    max_abs = 0.0
+    for lo, hi in peaks:
+        max_abs = max(max_abs, abs(lo), abs(hi))
+    if max_abs > 0:
+        peaks = [[round(lo / max_abs, 4), round(hi / max_abs, 4)] for lo, hi in peaks]
 
     while len(peaks) < num_points:
-        peaks.append(0.0)
+        peaks.append([0.0, 0.0])
 
     return peaks[:num_points], duration
 
 
-def _decode_peaks(path: Path, bars: int) -> tuple[list[float], float]:
-    peaks, duration = _decode_peaks_broadcast(path, bars)
-    if peaks and max(peaks) > 0:
-        return peaks, duration
+def _decode_peaks(path: Path, bars: int) -> tuple[list[list[float]], float]:
     peaks, duration = _decode_peaks_audiowaveform(path, bars)
+    if peaks and max(max(abs(p[0]), abs(p[1])) for p in peaks) > 0:
+        return peaks, duration
+    peaks, duration = _decode_peaks_broadcast(path, bars)
     if peaks:
         return peaks, duration
-    return _decode_peaks_ffmpeg(path, bars)
+    peaks, duration = _decode_peaks_ffmpeg(path, bars)
+    return _normalize_peak_pairs(peaks), duration
 
 
 def load_cached_peaks(path: Path) -> tuple[list[float], float] | None:
@@ -596,6 +616,7 @@ def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> Path:
             json.dumps(
                 {
                     "duration": duration,
+                    "data": peaks[:PEAK_POINTS],
                     "peaks": peaks[:PEAK_POINTS],
                     "peak_points": min(len(peaks), PEAK_POINTS),
                     "source_mtime": int(stat.st_mtime),
@@ -613,7 +634,11 @@ def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> Path:
 def read_peaks_fast(path: Path, max_wait: float = 0.0) -> dict:
     """Return cached peaks; optionally wait up to max_wait seconds for generation."""
     cached_response = _cached_response(path)
-    if cached_response and cached_response.get("precise"):
+    if (
+        cached_response
+        and cached_response.get("precise")
+        and cached_response.get("peak_points", 0) >= PEAK_POINTS
+    ):
         return cached_response
 
     duration = estimate_duration(path)
@@ -626,7 +651,10 @@ def read_peaks_fast(path: Path, max_wait: float = 0.0) -> dict:
     cached = load_cached_peaks(path)
     if cached:
         peaks, cached_duration = cached
-        response = _wire_response(peaks, cached_duration, True)
+        if len(peaks) < PEAK_POINTS:
+            ensure_peaks_async(path)
+        precise = len(peaks) >= PEAK_POINTS
+        response = _wire_response(peaks, cached_duration, precise)
         _store_response(path, response)
         return response
 
@@ -644,7 +672,8 @@ def read_peaks_fast(path: Path, max_wait: float = 0.0) -> dict:
         cached = load_cached_peaks(path)
         if cached:
             peaks, cached_duration = cached
-            response = _wire_response(peaks, cached_duration, True)
+            precise = len(peaks) >= PEAK_POINTS
+            response = _wire_response(peaks, cached_duration, precise)
             _store_response(path, response)
             return response
 
@@ -662,7 +691,11 @@ def _needs_peak_upgrade(path: Path) -> bool:
     if not cached:
         return True
     peaks, _ = cached
-    return len(peaks) < PEAK_POINTS
+    if len(peaks) < PEAK_POINTS:
+        return True
+    if peaks and not isinstance(peaks[0], (list, tuple)):
+        return True
+    return False
 
 
 def ensure_peaks(path: Path) -> None:
