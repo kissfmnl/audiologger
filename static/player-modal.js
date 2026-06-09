@@ -36,9 +36,9 @@
     const TARGET_VISIBLE_SECONDS = 120;
     const TIME_AXIS_HEIGHT_CSS = 18;
     const ZOOM_SLIDER_STEPS = 400;
-    const WHEEL_ZOOM_SENSITIVITY = 0.0011;
-    const PEAKS_UPSAMPLE_MIN = 4096;
-    const KEYBOARD_ZOOM_FACTOR = 0.88;
+    const WHEEL_ZOOM_SENSITIVITY = 0.0032;
+    const PEAKS_UPSAMPLE_MIN = 8192;
+    const KEYBOARD_ZOOM_FACTOR = 0.76;
     const DRAG_SELECT_THRESHOLD_PX = 5;
     const PAN_STEPS = 1000;
     const WAVEFORM_WAIT_SEC = 3;
@@ -317,7 +317,7 @@
         if (!source.length) {
             return [];
         }
-        const targetLen = Math.max(PEAKS_UPSAMPLE_MIN, source.length * 8);
+        const targetLen = Math.max(PEAKS_UPSAMPLE_MIN, source.length * 16);
         if (source.length >= targetLen) {
             return source.slice();
         }
@@ -341,8 +341,7 @@
         const i0 = Math.floor(pos);
         const i1 = Math.min(peaks.length - 1, i0 + 1);
         const t = pos - i0;
-        const smooth = t * t * (3 - 2 * t);
-        return peaks[i0] * (1 - smooth) + peaks[i1] * smooth;
+        return peaks[i0] * (1 - t) + peaks[i1] * t;
     }
 
     function getVisiblePeaks(width) {
@@ -356,7 +355,7 @@
         for (let x = 0; x < width; x += 1) {
             const center = viewStart + ((x + 0.5) / width) * span;
             let max = 0;
-            const steps = Math.max(3, Math.ceil(sliceWidth * peaks.length * 2));
+            const steps = Math.max(4, Math.ceil(sliceWidth * peaks.length * 5));
             for (let s = 0; s < steps; s += 1) {
                 const ratio = center + (s / (steps - 1) - 0.5) * sliceWidth;
                 max = Math.max(max, peakAtRatio(ratio));
@@ -387,7 +386,7 @@
                 ctx.lineTo(0, y);
             } else {
                 const prevY = mid - samples[x - 1] * mid * 0.92;
-                ctx.quadraticCurveTo(x - 0.5, prevY, x, y);
+                ctx.quadraticCurveTo(x - 0.35, prevY, x, y);
             }
         }
         for (let x = width - 1; x >= 0; x -= 1) {
@@ -396,7 +395,7 @@
                 ctx.lineTo(x, y);
             } else {
                 const prevY = mid + samples[x + 1] * mid * 0.92;
-                ctx.quadraticCurveTo(x + 0.5, prevY, x, y);
+                ctx.quadraticCurveTo(x + 0.35, prevY, x, y);
             }
         }
         ctx.closePath();
@@ -525,7 +524,7 @@
         for (let x = 0; x < width; x += 1) {
             const center = rangeStart + ((x + 0.5) / width) * span;
             let max = 0;
-            const steps = Math.max(3, Math.ceil(sliceWidth * peaks.length * 2));
+            const steps = Math.max(4, Math.ceil(sliceWidth * peaks.length * 5));
             for (let s = 0; s < steps; s += 1) {
                 const ratio = center + (s / (steps - 1) - 0.5) * sliceWidth;
                 max = Math.max(max, peakAtRatio(ratio));
