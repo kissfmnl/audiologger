@@ -34,7 +34,8 @@
     const peaksCache = new Map();
     const peaksInflight = new Map();
     const MIN_ZOOM = 1;
-    const TARGET_VISIBLE_SECONDS = 20 * 60;
+    const TARGET_VISIBLE_SECONDS = 60;
+    const TIME_AXIS_HEIGHT_CSS = 22;
     let maxZoom = MIN_ZOOM;
     const PAN_STEPS = 1000;
     const WAVEFORM_WAIT_SEC = 3;
@@ -125,6 +126,33 @@
         const date = clipMeta.date || "datum";
         const hour = String(clipMeta.hour ?? 0).padStart(2, "0");
         return `${station}-${date}-clip-${hour}.mp3`;
+    }
+
+    function getTimeAxisHeight() {
+        return Math.round(TIME_AXIS_HEIGHT_CSS * (window.devicePixelRatio || 1));
+    }
+
+    function getWaveHeight(canvasHeight) {
+        return Math.max(1, canvasHeight - getTimeAxisHeight());
+    }
+
+    function timeAxisStep(visibleSeconds) {
+        if (visibleSeconds <= 90) {
+            return 10;
+        }
+        if (visibleSeconds <= 5 * 60) {
+            return 30;
+        }
+        if (visibleSeconds <= 15 * 60) {
+            return 60;
+        }
+        if (visibleSeconds <= 30 * 60) {
+            return 120;
+        }
+        if (visibleSeconds <= 60 * 60) {
+            return 300;
+        }
+        return 600;
     }
 
     function refreshMaxZoom() {
@@ -292,12 +320,16 @@
     function drawWaveform() {
         const width = canvas.width;
         const height = canvas.height;
-        const mid = height / 2;
+        const axisH = getTimeAxisHeight();
+        const waveHeight = getWaveHeight(height);
+        const mid = waveHeight / 2;
         ctx.clearRect(0, 0, width, height);
 
         if (!peaks.length) {
             ctx.fillStyle = "#E5E7EB";
             ctx.fillRect(0, mid - 1, width, 2);
+            drawTimeAxis(width, height, axisH);
+            drawOverview();
             return;
         }
 
@@ -305,9 +337,9 @@
         const progress = timeToRatio(audio ? audio.currentTime : 0);
         const playheadX = ratioToCanvasX(progress);
 
-        drawFilledWave(samples, width, height, mid, WAVE_COLOR_IDLE, null);
+        drawFilledWave(samples, width, waveHeight, mid, WAVE_COLOR_IDLE, null);
         if (playheadX > 0) {
-            drawFilledWave(samples, width, height, mid, WAVE_COLOR_PLAYED, playheadX);
+            drawFilledWave(samples, width, waveHeight, mid, WAVE_COLOR_PLAYED, playheadX);
         }
 
         if (selectionRegion && duration > 0) {
@@ -316,33 +348,38 @@
             const left = Math.min(startX, endX);
             const selWidth = Math.abs(endX - startX);
             ctx.fillStyle = "rgba(124, 58, 237, 0.18)";
-            ctx.fillRect(left, 0, selWidth, height);
+            ctx.fillRect(left, 0, selWidth, waveHeight);
             ctx.strokeStyle = WAVE_COLOR_PLAYED;
             ctx.lineWidth = 2;
-            ctx.strokeRect(left + 0.5, 0.5, Math.max(0, selWidth - 1), height - 1);
+            ctx.strokeRect(left + 0.5, 0.5, Math.max(0, selWidth - 1), waveHeight - 1);
         }
 
         if (playheadX >= 0 && playheadX <= width) {
             ctx.fillStyle = WAVE_COLOR_CURSOR;
-            ctx.fillRect(Math.max(0, playheadX - 1), 0, 2, height);
+            ctx.fillRect(Math.max(0, playheadX - 1), 0, 2, waveHeight);
         }
 
-        drawTimeAxis(width, height);
+        drawTimeAxis(width, height, axisH);
         drawOverview();
     }
 
-    function drawTimeAxis(width, height) {
-        if (zoom <= MIN_ZOOM || !duration) {
+    function drawTimeAxis(width, height, axisH) {
+        if (!duration) {
             return;
         }
         const span = getViewSpan();
         const visibleSeconds = duration * span;
-        const step = visibleSeconds <= 15 * 60 ? 60 : 120;
+        const step = timeAxisStep(visibleSeconds);
         const startSec = viewStart * duration;
         const endSec = startSec + visibleSeconds;
         const firstTick = Math.ceil(startSec / step) * step;
+        const labelY = height - Math.round(axisH * 0.2);
+        const tickTop = height - Math.round(axisH * 0.55);
+        const tickBottom = height - Math.round(axisH * 0.25);
 
         ctx.save();
+        ctx.fillStyle = "#E5E7EB";
+        ctx.fillRect(0, height - axisH, width, 1);
         ctx.fillStyle = "#64748b";
         ctx.font = `${Math.max(10, Math.floor(width / 90))}px Inter, system-ui, sans-serif`;
         ctx.textAlign = "center";
@@ -354,10 +391,10 @@
             if (x < 0 || x > width) {
                 continue;
             }
-            ctx.fillRect(x, height - 14, 1, 8);
+            ctx.fillRect(x, tickTop, 1, tickBottom - tickTop);
             const mins = Math.floor(sec / 60);
             const secs = Math.floor(sec % 60);
-            ctx.fillText(`${mins}:${secs.toString().padStart(2, "0")}`, x, height - 16);
+            ctx.fillText(`${mins}:${secs.toString().padStart(2, "0")}`, x, labelY);
         }
         ctx.restore();
     }
