@@ -151,7 +151,26 @@
 {% elif dropbox_archive_count > 0 and not dropbox_configured %}
 <div class="mb-5 pl-4 py-3 rounded-lg border border-amber-300 bg-amber-50 text-xs text-amber-900">
     <strong>Dropbox niet geconfigureerd.</strong> {{ dropbox_archive_count }} zender(s) staan op Dropbox-archief,
-    maar <code class="font-mono">DROPBOX_ACCESS_TOKEN</code> ontbreekt in Railway. Uploads worden overgeslagen.
+    maar er zijn geen accounts ingesteld. Voeg <code class="font-mono">DROPBOX_ACCOUNTS</code> toe in Railway.
+</div>
+{% elif dropbox_archive_unconfigured_count > 0 %}
+<div class="mb-5 pl-4 py-3 rounded-lg border border-amber-300 bg-amber-50 text-xs text-amber-900">
+    <strong>Dropbox-account ontbreekt.</strong> {{ dropbox_archive_unconfigured_count }} zender(s) hebben archief aan
+    maar geen geldig account.
+</div>
+{% endif %}
+
+{% if dropbox_accounts %}
+<div class="mb-5 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+    <p class="text-xs font-semibold text-blue-900 mb-1">Dropbox-accounts ({{ dropbox_accounts|length }})</p>
+    <p class="text-[11px] text-blue-800/80 mb-2">Tokens staan in Railway via <code class="font-mono">DROPBOX_ACCOUNTS</code>. Per zender kies je welk account.</p>
+    <div class="flex flex-wrap gap-2">
+        {% for account in dropbox_accounts %}
+        <span class="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium bg-white border border-blue-200 text-blue-900">
+            {{ account.label }} <span class="text-blue-400 font-mono ml-1">{{ account.id }}</span>
+        </span>
+        {% endfor %}
+    </div>
 </div>
 {% endif %}
 
@@ -233,9 +252,18 @@
                         <span class="font-medium">Direct actief</span>
                     </label>
                     <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
-                        <input type="checkbox" name="dropbox_archive" class="rounded accent-violet-600">
+                        <input type="checkbox" name="dropbox_archive" class="dropbox-archive-toggle rounded accent-violet-600">
                         <span class="font-medium">Dropbox-archief</span>
                     </label>
+                </div>
+                <div class="sm:col-span-2 dropbox-account-wrap hidden">
+                    <label class="field-label">Dropbox-account</label>
+                    <select name="dropbox_account" class="field-input text-xs">
+                        <option value="">Standaard account</option>
+                        {% for account in dropbox_accounts %}
+                        <option value="{{ account.id }}">{{ account.label }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div class="sm:col-span-2">
                     <div class="event-dates hidden flex flex-wrap gap-3">
@@ -316,7 +344,9 @@
                             <span class="badge-event">Event</span>
                             {% endif %}
                             {% if station.dropbox_archive %}
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-blue-100 text-blue-800">Dropbox</span>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-blue-100 text-blue-800">
+                                Dropbox{% if station.dropbox_account_label %} · {{ station.dropbox_account_label }}{% endif %}
+                            </span>
                             {% endif %}
                         </div>
                         <p class="text-[11px] font-mono text-violet-400 mt-0.5 truncate">{{ station.id }} · {{ station.timezone }}</p>
@@ -425,10 +455,19 @@
                                 <span class="font-medium">Actief</span>
                             </label>
                             <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
-                                <input type="checkbox" name="dropbox_archive" class="rounded accent-violet-600"
+                                <input type="checkbox" name="dropbox_archive" class="dropbox-archive-toggle rounded accent-violet-600"
                                        {% if station.dropbox_archive %}checked{% endif %}>
                                 <span class="font-medium">Dropbox-archief</span>
                             </label>
+                        </div>
+                        <div class="sm:col-span-2 dropbox-account-wrap {% if not station.dropbox_archive %}hidden{% endif %}">
+                            <label class="field-label">Dropbox-account</label>
+                            <select name="dropbox_account" class="field-input text-xs">
+                                <option value="" {% if not station.dropbox_account %}selected{% endif %}>Standaard account</option>
+                                {% for account in dropbox_accounts %}
+                                <option value="{{ account.id }}" {% if station.dropbox_account == account.id %}selected{% endif %}>{{ account.label }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
                         <div class="sm:col-span-2">
                             <div class="event-dates {% if not station.is_event %}hidden{% endif %} flex flex-wrap gap-3">

@@ -19,6 +19,7 @@ class Station(SQLModel, table=True):
     active: bool = Field(default=True)
     logo_path: Optional[str] = Field(default=None)
     dropbox_archive: bool = Field(default=False)
+    dropbox_account: Optional[str] = Field(default=None)
 
 
 class Recording(SQLModel, table=True):

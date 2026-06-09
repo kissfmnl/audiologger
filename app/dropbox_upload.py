@@ -1,53 +1,48 @@
 import logging
-import os
 import threading
 from pathlib import Path
 
 from sqlmodel import Session, select
 
 from app.database import engine
+from app.dropbox_accounts import (
+    dropbox_configured,
+    load_dropbox_accounts,
+    resolve_station_account,
+)
 from app.models import Recording
 
 logger = logging.getLogger(__name__)
 
-DROPBOX_ACCESS_TOKEN = os.getenv("DROPBOX_ACCESS_TOKEN", "").strip()
-DROPBOX_ROOT_FOLDER = os.getenv("DROPBOX_ROOT_FOLDER", "/AudioLogger").strip().rstrip("/") or "/AudioLogger"
-
-
-def dropbox_configured() -> bool:
-    return bool(DROPBOX_ACCESS_TOKEN)
-
 
 def should_archive_station(station: dict) -> bool:
-    return bool(station.get("dropbox_archive")) and dropbox_configured()
+    return resolve_station_account(station) is not None
 
 
-def build_dropbox_remote_path(station: dict, filename: str) -> str:
+def build_dropbox_remote_path(root: str, station: dict, filename: str) -> str:
     country = (station.get("country") or "NL").upper()
     station_id = station.get("id") or "unknown"
-    return f"{DROPBOX_ROOT_FOLDER}/{country}/{station_id}/{filename}"
-
-
-def _get_dropbox_client():
-    import dropbox
-
-    return dropbox.Dropbox(DROPBOX_ACCESS_TOKEN)
+    root = root.rstrip("/") or "/AudioLogger"
+    return f"{root}/{country}/{station_id}/{filename}"
 
 
 def upload_recording(file_path: Path, station: dict, recording_id: int | None = None) -> str | None:
-    if not should_archive_station(station):
+    resolved = resolve_station_account(station)
+    if not resolved:
         return None
+
+    account_id, account = resolved
     if not file_path.exists() or file_path.stat().st_size < 1024:
         logger.warning("Dropbox skip (missing/empty file): %s", file_path.name)
         return None
 
-    remote_path = build_dropbox_remote_path(station, file_path.name)
+    remote_path = build_dropbox_remote_path(account["root"], station, file_path.name)
 
     try:
         import dropbox
         from dropbox.files import WriteMode
 
-        dbx = _get_dropbox_client()
+        dbx = dropbox.Dropbox(account["token"])
         with file_path.open("rb") as handle:
             dbx.files_upload(
                 handle.read(),
@@ -57,7 +52,8 @@ def upload_recording(file_path: Path, station: dict, recording_id: int | None = 
             )
     except Exception:
         logger.exception(
-            "Dropbox upload failed for %s -> %s",
+            "Dropbox upload failed (%s) for %s -> %s",
+            account_id,
             file_path.name,
             remote_path,
         )
@@ -71,7 +67,13 @@ def upload_recording(file_path: Path, station: dict, recording_id: int | None = 
                 session.add(recording)
                 session.commit()
 
-    logger.info("Dropbox upload OK: %s -> %s", file_path.name, remote_path)
+    logger.info(
+        "Dropbox upload OK (%s / %s): %s -> %s",
+        account_id,
+        account["label"],
+        file_path.name,
+        remote_path,
+    )
     return remote_path
 
 
@@ -117,7 +119,7 @@ def retry_pending_dropbox_uploads() -> dict:
             if not path.exists():
                 continue
             station = get_station_by_id(recording.station_id)
-            if not station:
+            if not station or not should_archive_station(station):
                 continue
             attempted += 1
             if upload_recording(path, station, recording.id):

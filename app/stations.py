@@ -18,6 +18,7 @@ from app.database import (
     STATIONS_BACKUP_PATH,
     engine,
 )
+from app.dropbox_accounts import dropbox_account_label, load_dropbox_accounts
 from app.models import Station
 
 logger = logging.getLogger(__name__)
@@ -214,10 +215,12 @@ def station_to_dict(station: Station) -> dict:
         "active": station.active,
         "logo_path": station.logo_path,
         "dropbox_archive": bool(station.dropbox_archive),
+        "dropbox_account": station.dropbox_account or "",
         "logo_url": logo_url,
     }
     data["schedule_label"] = format_schedule_label(data)
     data["retention_label"] = retention_label(data)
+    data["dropbox_account_label"] = dropbox_account_label(data)
     return data
 
 
@@ -237,6 +240,7 @@ def _station_backup_row(station: Station) -> dict:
         "active": station.active,
         "logo_path": station.logo_path,
         "dropbox_archive": station.dropbox_archive,
+        "dropbox_account": station.dropbox_account,
     }
 
 
@@ -274,6 +278,7 @@ def _restore_from_backup_file(path: Path) -> int:
                     active=bool(item.get("active", True)),
                     logo_path=item.get("logo_path"),
                     dropbox_archive=bool(item.get("dropbox_archive", False)),
+                    dropbox_account=item.get("dropbox_account"),
                 )
             )
         session.commit()
@@ -344,6 +349,7 @@ def migrate_station_schema() -> None:
         "event_end_date": "TEXT",
         "retention_days": "INTEGER",
         "dropbox_archive": "INTEGER DEFAULT 0",
+        "dropbox_account": "TEXT",
     }
 
     with engine.connect() as conn:
@@ -519,6 +525,20 @@ def recording_start_time(station: dict, moment: datetime | None = None) -> datet
     return local.replace(tzinfo=None)
 
 
+def validate_dropbox_account(dropbox_archive: bool, dropbox_account: str | None) -> str | None:
+    if not dropbox_archive:
+        return None
+    accounts = load_dropbox_accounts()
+    if not accounts:
+        raise ValueError("Dropbox is niet geconfigureerd (DROPBOX_ACCOUNTS ontbreekt)")
+    account_id = (dropbox_account or "").strip()
+    if not account_id:
+        return None
+    if account_id not in accounts:
+        raise ValueError(f"Onbekend Dropbox-account: {account_id}")
+    return account_id
+
+
 def create_station(
     session: Session,
     station_id: str,
@@ -532,6 +552,7 @@ def create_station(
     retention_days: str | int | None = None,
     active: bool = True,
     dropbox_archive: bool = False,
+    dropbox_account: str | None = None,
 ) -> Station:
     validate_station_id(station_id)
     url = normalize_url(url)
@@ -541,6 +562,7 @@ def create_station(
         is_event, event_start_date, event_end_date
     )
     parsed_retention = parse_retention_days(is_event, retention_days)
+    parsed_dropbox_account = validate_dropbox_account(dropbox_archive, dropbox_account)
 
     if session.get(Station, station_id):
         raise ValueError(f"Zender met ID '{station_id}' bestaat al")
@@ -560,6 +582,7 @@ def create_station(
         retention_days=parsed_retention,
         active=active,
         dropbox_archive=dropbox_archive,
+        dropbox_account=parsed_dropbox_account,
     )
     session.add(station)
     session.commit()
@@ -581,6 +604,7 @@ def update_station(
     retention_days: str | int | None,
     active: bool,
     dropbox_archive: bool = False,
+    dropbox_account: str | None = None,
 ) -> Station:
     station = session.get(Station, station_id)
     if not station:
@@ -593,6 +617,7 @@ def update_station(
         is_event, event_start_date, event_end_date
     )
     parsed_retention = parse_retention_days(is_event, retention_days)
+    parsed_dropbox_account = validate_dropbox_account(dropbox_archive, dropbox_account)
     info = get_country_info(country)
 
     station.name = name.strip()
@@ -607,6 +632,7 @@ def update_station(
     station.retention_days = parsed_retention
     station.active = active
     station.dropbox_archive = dropbox_archive
+    station.dropbox_account = parsed_dropbox_account
 
     session.add(station)
     session.commit()

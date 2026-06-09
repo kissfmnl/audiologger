@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initEditMode();
     initCountrySelects();
     initEventToggles();
+    initDropboxToggles();
     initDeleteButtons();
     initLogoModal();
     scrollToFocus();
@@ -105,6 +106,21 @@ function initEventToggles() {
             const on = toggle.checked;
             dates.classList.toggle('hidden', !on);
             row.querySelectorAll('.event-hint').forEach((el) => el.classList.toggle('hidden', !on));
+        };
+
+        toggle.addEventListener('change', sync);
+        sync();
+    });
+}
+
+function initDropboxToggles() {
+    document.querySelectorAll('.station-row').forEach((row) => {
+        const toggle = row.querySelector('.dropbox-archive-toggle');
+        const wrap = row.querySelector('.dropbox-account-wrap');
+        if (!toggle || !wrap) return;
+
+        const sync = () => {
+            wrap.classList.toggle('hidden', !toggle.checked);
         };
 
         toggle.addEventListener('change', sync);
