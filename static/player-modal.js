@@ -37,6 +37,7 @@
     const TIME_AXIS_HEIGHT_CSS = 18;
     const ZOOM_SLIDER_STEPS = 400;
     const WHEEL_ZOOM_SENSITIVITY = 0.0011;
+    const PEAKS_UPSAMPLE_MIN = 4096;
     const KEYBOARD_ZOOM_FACTOR = 0.88;
     const DRAG_SELECT_THRESHOLD_PX = 5;
     const PAN_STEPS = 1000;
@@ -312,25 +313,53 @@
         return ((ratio - viewStart) / span) * canvas.width;
     }
 
+    function upsamplePeaks(source) {
+        if (!source.length) {
+            return [];
+        }
+        const targetLen = Math.max(PEAKS_UPSAMPLE_MIN, source.length * 8);
+        if (source.length >= targetLen) {
+            return source.slice();
+        }
+        const out = new Array(targetLen);
+        for (let i = 0; i < targetLen; i += 1) {
+            const pos = (i / (targetLen - 1)) * (source.length - 1);
+            const i0 = Math.floor(pos);
+            const i1 = Math.min(source.length - 1, i0 + 1);
+            const t = pos - i0;
+            out[i] = source[i0] * (1 - t) + source[i1] * t;
+        }
+        return out;
+    }
+
+    function peakAtRatio(ratio) {
+        if (!peaks.length) {
+            return 0;
+        }
+        const clamped = Math.min(1, Math.max(0, ratio));
+        const pos = clamped * (peaks.length - 1);
+        const i0 = Math.floor(pos);
+        const i1 = Math.min(peaks.length - 1, i0 + 1);
+        const t = pos - i0;
+        const smooth = t * t * (3 - 2 * t);
+        return peaks[i0] * (1 - smooth) + peaks[i1] * smooth;
+    }
+
     function getVisiblePeaks(width) {
         if (!peaks.length) {
             return [];
         }
         const span = getViewSpan();
-        const startIdx = viewStart * peaks.length;
-        const endIdx = (viewStart + span) * peaks.length;
-        const samples = new Array(width).fill(0);
+        const samples = new Array(width);
+        const sliceWidth = span / width;
 
         for (let x = 0; x < width; x += 1) {
-            const sliceStart = startIdx + (x / width) * (endIdx - startIdx);
-            const sliceEnd = startIdx + ((x + 1) / width) * (endIdx - startIdx);
-            const iStart = Math.floor(sliceStart);
-            const iEnd = Math.max(iStart + 1, Math.ceil(sliceEnd));
+            const center = viewStart + ((x + 0.5) / width) * span;
             let max = 0;
-            for (let i = iStart; i < iEnd && i < peaks.length; i += 1) {
-                if (i >= 0) {
-                    max = Math.max(max, peaks[i]);
-                }
+            const steps = Math.max(3, Math.ceil(sliceWidth * peaks.length * 2));
+            for (let s = 0; s < steps; s += 1) {
+                const ratio = center + (s / (steps - 1) - 0.5) * sliceWidth;
+                max = Math.max(max, peakAtRatio(ratio));
             }
             samples[x] = max;
         }
@@ -353,12 +382,22 @@
         ctx.beginPath();
         ctx.moveTo(0, mid);
         for (let x = 0; x < width; x += 1) {
-            const amplitude = samples[x] * mid * 0.92;
-            ctx.lineTo(x, mid - amplitude);
+            const y = mid - samples[x] * mid * 0.92;
+            if (x === 0) {
+                ctx.lineTo(0, y);
+            } else {
+                const prevY = mid - samples[x - 1] * mid * 0.92;
+                ctx.quadraticCurveTo(x - 0.5, prevY, x, y);
+            }
         }
         for (let x = width - 1; x >= 0; x -= 1) {
-            const amplitude = samples[x] * mid * 0.92;
-            ctx.lineTo(x, mid + amplitude);
+            const y = mid + samples[x] * mid * 0.92;
+            if (x === width - 1) {
+                ctx.lineTo(x, y);
+            } else {
+                const prevY = mid + samples[x + 1] * mid * 0.92;
+                ctx.quadraticCurveTo(x + 0.5, prevY, x, y);
+            }
         }
         ctx.closePath();
         ctx.fill();
@@ -480,19 +519,16 @@
         if (!peaks.length) {
             return [];
         }
-        const startIdx = rangeStart * peaks.length;
-        const endIdx = rangeEnd * peaks.length;
-        const samples = new Array(width).fill(0);
+        const span = rangeEnd - rangeStart;
+        const samples = new Array(width);
+        const sliceWidth = span / width;
         for (let x = 0; x < width; x += 1) {
-            const sliceStart = startIdx + (x / width) * (endIdx - startIdx);
-            const sliceEnd = startIdx + ((x + 1) / width) * (endIdx - startIdx);
-            const iStart = Math.floor(sliceStart);
-            const iEnd = Math.max(iStart + 1, Math.ceil(sliceEnd));
+            const center = rangeStart + ((x + 0.5) / width) * span;
             let max = 0;
-            for (let i = iStart; i < iEnd && i < peaks.length; i += 1) {
-                if (i >= 0) {
-                    max = Math.max(max, peaks[i]);
-                }
+            const steps = Math.max(3, Math.ceil(sliceWidth * peaks.length * 2));
+            for (let s = 0; s < steps; s += 1) {
+                const ratio = center + (s / (steps - 1) - 0.5) * sliceWidth;
+                max = Math.max(max, peakAtRatio(ratio));
             }
             samples[x] = max;
         }
@@ -513,12 +549,22 @@
         targetCtx.beginPath();
         targetCtx.moveTo(0, mid);
         for (let x = 0; x < width; x += 1) {
-            const amplitude = samples[x] * mid * 0.92;
-            targetCtx.lineTo(x, mid - amplitude);
+            const y = mid - samples[x] * mid * 0.92;
+            if (x === 0) {
+                targetCtx.lineTo(0, y);
+            } else {
+                const prevY = mid - samples[x - 1] * mid * 0.92;
+                targetCtx.quadraticCurveTo(x - 0.5, prevY, x, y);
+            }
         }
         for (let x = width - 1; x >= 0; x -= 1) {
-            const amplitude = samples[x] * mid * 0.92;
-            targetCtx.lineTo(x, mid + amplitude);
+            const y = mid + samples[x] * mid * 0.92;
+            if (x === width - 1) {
+                targetCtx.lineTo(x, y);
+            } else {
+                const prevY = mid + samples[x + 1] * mid * 0.92;
+                targetCtx.quadraticCurveTo(x + 0.5, prevY, x, y);
+            }
         }
         targetCtx.closePath();
         targetCtx.fill();
@@ -834,7 +880,7 @@
     }
 
     function applyPeaksData(data) {
-        peaks = peakValues(data);
+        peaks = upsamplePeaks(peakValues(data));
         duration = data.duration || duration || 3600;
         totalTimeEl.textContent = formatTime(duration);
         refreshZoomLimits();
@@ -1047,7 +1093,7 @@
         const focus = pointerToFocusRatio(event);
         lastFocusInView = focus;
         const delta = normalizeWheelDelta(event);
-        const factor = Math.exp(-delta * WHEEL_ZOOM_SENSITIVITY);
+        const factor = Math.exp(delta * WHEEL_ZOOM_SENSITIVITY);
         setViewSpan(getViewSpan() * factor, focus);
     }, { passive: false });
 
