@@ -12,6 +12,32 @@ class DropboxAccount(TypedDict):
     root: str
 
 
+def _load_accounts_from_env_vars() -> dict[str, DropboxAccount]:
+    accounts: dict[str, DropboxAccount] = {}
+    account_ids_raw = os.getenv("DROPBOX_ACCOUNT_IDS", "").strip()
+    if not account_ids_raw:
+        return accounts
+
+    for account_id in account_ids_raw.split(","):
+        account_id = account_id.strip().lower()
+        if not account_id:
+            continue
+        env_key = account_id.upper().replace("-", "_")
+        token = os.getenv(f"DROPBOX_TOKEN_{env_key}", "").strip()
+        if not token:
+            logger.warning("DROPBOX_ACCOUNT_IDS bevat '%s' maar DROPBOX_TOKEN_%s ontbreekt", account_id, env_key)
+            continue
+        root = os.getenv(f"DROPBOX_ROOT_{env_key}", "/AudioLogger").strip().rstrip("/") or "/AudioLogger"
+        label = os.getenv(f"DROPBOX_LABEL_{env_key}", account_id).strip() or account_id
+        accounts[account_id] = {
+            "label": label,
+            "token": token,
+            "root": root,
+        }
+
+    return accounts
+
+
 def load_dropbox_accounts() -> dict[str, DropboxAccount]:
     accounts: dict[str, DropboxAccount] = {}
     raw = os.getenv("DROPBOX_ACCOUNTS", "").strip()
@@ -35,11 +61,14 @@ def load_dropbox_accounts() -> dict[str, DropboxAccount]:
                     "root": root,
                 }
 
+    for account_id, cfg in _load_accounts_from_env_vars().items():
+        accounts.setdefault(account_id, cfg)
+
     legacy_token = os.getenv("DROPBOX_ACCESS_TOKEN", "").strip()
     if legacy_token and "default" not in accounts:
         legacy_root = os.getenv("DROPBOX_ROOT_FOLDER", "/AudioLogger").strip().rstrip("/")
         accounts["default"] = {
-            "label": "Standaard",
+            "label": os.getenv("DROPBOX_LABEL", "Standaard").strip() or "Standaard",
             "token": legacy_token,
             "root": legacy_root or "/AudioLogger",
         }
