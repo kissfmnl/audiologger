@@ -26,7 +26,7 @@ from app.database import (
 from app.archive_view import build_hour_slots
 from app.convert_recordings import convert_wav_recordings
 from app.editor import trim_recording
-from app.peaks import estimate_duration, read_peaks_fast, read_peaks_region, warm_missing_peaks
+from app.peaks import bootstrap_peaks, estimate_duration, read_peaks_fast, read_peaks_region, warm_missing_peaks
 from app.recorder import get_partial_path_for_hour, get_partial_recording_path
 from app.scheduler import setup_scheduler, shutdown_scheduler
 from app.contact_protection import HONEYPOT_FIELD, issue_contact_form, validate_contact_submission
@@ -173,6 +173,10 @@ def _build_peaks_bootstrap(
             "title": f"{station['name']} · {slot['label']}",
             "recording_id": slot.get("recording_id"),
         }
+        if audio_path:
+            boot = bootstrap_peaks(audio_path)
+            if boot:
+                entry.update(boot)
         bootstrap[slot["peaks_url"]] = entry
     return bootstrap
 

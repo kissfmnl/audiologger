@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 PEAK_POINTS = 8000
 WIRE_BARS = 8000
+BOOTSTRAP_BARS = 512
 PEAK_DECODE_SAMPLE_RATE = 8000
 REGION_MAX_BARS = 8192
 BYTES_PER_SECOND_128K = 16000
@@ -61,13 +62,54 @@ def _normalize_peak_pairs(peaks: list) -> list[list[float]]:
     return [[-float(p), float(p)] for p in peaks]
 
 
+def downsample_envelope_peaks(
+    peaks: list, bars: int = BOOTSTRAP_BARS
+) -> list[list[float]]:
+    pairs = _normalize_peak_pairs(peaks)
+    if not pairs or len(pairs) <= bars:
+        return pairs
+    step = len(pairs) / bars
+    sampled: list[list[float]] = []
+    for index in range(bars):
+        start = int(index * step)
+        end = max(start + 1, int((index + 1) * step))
+        chunk = pairs[start:end]
+        sampled.append(
+            [
+                round(min(p[0] for p in chunk), 4),
+                round(max(p[1] for p in chunk), 4),
+            ]
+        )
+    return sampled
+
+
+def bootstrap_peaks(path: Path) -> dict | None:
+    """Lightweight peaks for inline page bootstrap (~512 points)."""
+    cached = load_cached_peaks(path)
+    if not cached:
+        return None
+    peaks, duration = cached
+    wire = downsample_envelope_peaks(peaks, BOOTSTRAP_BARS)
+    if not wire:
+        return None
+    full_count = len(peaks)
+    return {
+        "peaks": wire,
+        "data": wire,
+        "duration": duration,
+        "ready": True,
+        "precise": full_count >= PEAK_POINTS,
+        "peak_points": full_count,
+    }
+
+
 def _wire_response(peaks: list, duration: float, precise: bool) -> dict:
     pairs = _normalize_peak_pairs(peaks)
     return {
         "peaks": pairs,
         "data": pairs,
         "duration": duration,
-        "ready": True,
+        "ready": bool(pairs),
         "precise": precise,
         "peak_points": len(pairs),
     }

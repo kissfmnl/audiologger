@@ -44,7 +44,7 @@
     const REGION_MAX_BARS = 8192;
     const DRAG_SELECT_THRESHOLD_PX = 5;
     const PAN_STEPS = 1000;
-    const WAVEFORM_WAIT_SEC = 3;
+    const WAVEFORM_WAIT_SEC = 1;
     const SELECTION_DEFAULT_SEC = 10;
     const WAVE_COLOR_IDLE = "#C4B5FD";
     const WAVE_COLOR_PLAYED = "#7C3AED";
@@ -1044,11 +1044,15 @@
         });
     }
 
+    function hasPeakData(data) {
+        return peakValues(data).length > 0;
+    }
+
     async function fetchPeaks(url, force = false, waitSeconds = 0) {
         const requestUrl = force ? url : peaksRequestUrl(url, waitSeconds);
-        if (!force && waitSeconds === 0 && peaksCache.has(url)) {
+        if (!force && peaksCache.has(url)) {
             const cached = peaksCache.get(url);
-            if (cached?.precise && peakValues(cached).length) {
+            if (hasPeakData(cached)) {
                 return cached;
             }
         }
@@ -1064,7 +1068,7 @@
                 return response.json();
             })
             .then((data) => {
-                if (data?.precise && peakValues(data).length) {
+                if (hasPeakData(data)) {
                     peaksCache.set(url, { ...(peaksCache.get(url) || {}), ...data });
                 }
                 return peaksCache.get(url) || data;
@@ -1078,7 +1082,14 @@
     }
 
     function prefetchPeaks(url) {
-        if (!url || peaksCache.has(url) || peaksInflight.has(url)) {
+        if (!url) {
+            return;
+        }
+        const cached = peaksCache.get(url);
+        if (hasPeakData(cached)) {
+            return;
+        }
+        if (peaksInflight.has(url) || peaksInflight.has(peaksRequestUrl(url, 0))) {
             return;
         }
         fetchPeaks(url).catch(() => {});
@@ -1127,9 +1138,9 @@
             } catch {
                 // retry
             }
-            setTimeout(attempt, 2500);
+            setTimeout(attempt, 1500);
         };
-        setTimeout(attempt, 2500);
+        setTimeout(attempt, 800);
     }
 
     function pointerToFocusRatio(event) {
@@ -1201,6 +1212,7 @@
         resetSelection();
         setPlayingState(false);
         peaks = [];
+        loadingEl.classList.add("hidden");
         resizeCanvas();
 
         currentRecordingId = button.dataset.recordingId
@@ -1208,35 +1220,38 @@
             : null;
         canTrim = Boolean(currentRecordingId);
 
-        const inlinePeaks = parseInlinePeaks(button.dataset.peaks);
-        const cachedMeta = peaksCache.get(url) || {};
-        if (inlinePeaks?.length) {
-            cachedMeta.peaks = inlinePeaks;
-            cachedMeta.precise = true;
-            cachedMeta.duration = buttonDuration;
-            peaksCache.set(url, cachedMeta);
-        }
-
-        const hasCachedPeaks = Boolean(cachedMeta.precise && peakValues(cachedMeta).length);
-        const peaksPromise = hasCachedPeaks
-            ? Promise.resolve(cachedMeta)
-            : fetchPeaks(url, false, WAVEFORM_WAIT_SEC);
-
         try {
-            const [, peakData] = await Promise.all([
-                hasCachedPeaks ? Promise.resolve() : runCountdown(WAVEFORM_WAIT_SEC),
-                peaksPromise,
-            ]);
-            let data = peakData;
-            if (!data?.precise || !peakValues(data).length) {
-                data = await waitForPrecisePeaks(url);
+            const inlinePeaks = parseInlinePeaks(button.dataset.peaks);
+            const cachedMeta = peaksCache.get(url) || {};
+            if (inlinePeaks?.length) {
+                cachedMeta.peaks = inlinePeaks;
+                cachedMeta.precise = true;
+                cachedMeta.duration = buttonDuration;
+                peaksCache.set(url, cachedMeta);
             }
-            if (!peakValues(data).length) {
+
+            let data = hasPeakData(cachedMeta) ? cachedMeta : null;
+            if (!data) {
+                loadingEl.classList.remove("hidden");
+                data = await fetchPeaks(url, false, 0);
+            }
+            if (!hasPeakData(data)) {
+                const [, retryData] = await Promise.all([
+                    runCountdown(WAVEFORM_WAIT_SEC),
+                    fetchPeaks(url, false, WAVEFORM_WAIT_SEC),
+                ]);
+                data = retryData;
+            }
+
+            if (!hasPeakData(data)) {
                 throw new Error("Wavevorm kon niet worden geladen");
             }
 
             loadingEl.classList.add("hidden");
-            loadPlayerData({ ...cachedMeta, ...data, duration: data.duration || buttonDuration }, fallbackTitle);
+            loadPlayerData(
+                { ...cachedMeta, ...data, duration: data.duration || buttonDuration },
+                fallbackTitle,
+            );
 
             audio = new Audio(audioUrl);
             audio.preload = "metadata";
