@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import re
 import shutil
 from datetime import date, datetime
@@ -531,7 +530,7 @@ def validate_dropbox_account(dropbox_archive: bool, dropbox_account: str | None)
         return None
     accounts = load_dropbox_accounts()
     if not accounts:
-        raise ValueError("Dropbox is niet geconfigureerd (DROPBOX_ACCOUNTS ontbreekt)")
+        raise ValueError("Dropbox is niet geconfigureerd — voeg een account toe onder Admin → Dropbox")
     account_id = (dropbox_account or "").strip()
     if not account_id:
         return None
@@ -679,39 +678,20 @@ def save_station_logo(station_id: str, image_bytes: bytes) -> str:
     return filename
 
 
-def sync_dropbox_stations_from_env() -> None:
-    """Zet dropbox_archive aan/uit op basis van DROPBOX_STATION_IDS (komma-gescheiden)."""
-    raw = os.getenv("DROPBOX_STATION_IDS", "").strip()
-    if not raw:
-        return
-
-    target_ids = {part.strip().lower() for part in raw.split(",") if part.strip()}
-    if not target_ids:
-        return
-
-    accounts = load_dropbox_accounts()
-    if not accounts:
-        logger.warning("DROPBOX_STATION_IDS is gezet maar geen Dropbox-accounts gevonden")
-        return
-
-    preferred_account = os.getenv("DROPBOX_DEFAULT_ACCOUNT", "kiss").strip().lower()
-    account_id = preferred_account if preferred_account in accounts else next(iter(accounts))
-
-    with Session(engine) as session:
-        changed = False
-        for station in session.exec(select(Station)).all():
-            should_archive = station.id in target_ids
-            new_account = account_id if should_archive else None
-            if station.dropbox_archive != should_archive or station.dropbox_account != new_account:
-                station.dropbox_archive = should_archive
-                station.dropbox_account = new_account
-                session.add(station)
-                changed = True
-        if changed:
-            session.commit()
-            backup_stations_to_disk()
-            logger.info(
-                "Dropbox sync: archief voor %s (account %s), uit voor overige zenders",
-                ", ".join(sorted(target_ids)),
-                account_id,
-            )
+def set_station_dropbox(
+    session: Session,
+    station_id: str,
+    dropbox_archive: bool,
+    dropbox_account: str | None,
+) -> Station:
+    station = session.get(Station, station_id)
+    if not station:
+        raise ValueError("Zender niet gevonden")
+    parsed_dropbox_account = validate_dropbox_account(dropbox_archive, dropbox_account)
+    station.dropbox_archive = dropbox_archive
+    station.dropbox_account = parsed_dropbox_account
+    session.add(station)
+    session.commit()
+    session.refresh(station)
+    backup_stations_to_disk()
+    return station

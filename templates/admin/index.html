@@ -150,27 +150,13 @@
 </div>
 {% elif dropbox_archive_count > 0 and not dropbox_configured %}
 <div class="mb-5 pl-4 py-3 rounded-lg border border-amber-300 bg-amber-50 text-xs text-amber-900">
-    <strong>Dropbox niet geconfigureerd.</strong> {{ dropbox_archive_count }} zender(s) staan op Dropbox-archief,
-    maar er zijn geen accounts ingesteld. Voeg <code class="font-mono">DROPBOX_ACCESS_TOKEN</code> of <code class="font-mono">DROPBOX_ACCOUNT_IDS</code> toe in Railway.
+    <strong>Dropbox niet geconfigureerd.</strong> {{ dropbox_archive_count }} zender(s) staan op Dropbox-archief.
+    <a href="/admin/dropbox" class="underline font-medium">Voeg een Dropbox-account toe</a>.
 </div>
 {% elif dropbox_archive_unconfigured_count > 0 %}
 <div class="mb-5 pl-4 py-3 rounded-lg border border-amber-300 bg-amber-50 text-xs text-amber-900">
     <strong>Dropbox-account ontbreekt.</strong> {{ dropbox_archive_unconfigured_count }} zender(s) hebben archief aan
-    maar geen geldig account.
-</div>
-{% endif %}
-
-{% if dropbox_accounts %}
-<div class="mb-5 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
-    <p class="text-xs font-semibold text-blue-900 mb-1">Dropbox-accounts ({{ dropbox_accounts|length }})</p>
-    <p class="text-[11px] text-blue-800/80 mb-2">Tokens staan in Railway. Eén account: <code class="font-mono">DROPBOX_ACCESS_TOKEN</code>. Meerdere: <code class="font-mono">DROPBOX_ACCOUNT_IDS</code> + <code class="font-mono">DROPBOX_TOKEN_*</code>.</p>
-    <div class="flex flex-wrap gap-2">
-        {% for account in dropbox_accounts %}
-        <span class="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium bg-white border border-blue-200 text-blue-900">
-            {{ account.label }} <span class="text-blue-400 font-mono ml-1">{{ account.id }}</span>
-        </span>
-        {% endfor %}
-    </div>
+    maar geen geldig account. <a href="/admin/dropbox" class="underline font-medium">Instellen in Dropbox</a>.
 </div>
 {% endif %}
 

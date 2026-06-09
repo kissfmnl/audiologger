@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import base64
@@ -12,6 +14,11 @@ from sqlmodel import Session
 from app.admin_auth import is_authenticated, login, logout
 from app.database import BASE_DIR, get_session, get_storage_status, storage_capacity_plan
 from app.dropbox_accounts import dropbox_configured, list_dropbox_accounts_for_admin, station_archive_is_ready
+from app.dropbox_settings import (
+    delete_dropbox_account,
+    list_accounts_for_admin,
+    upsert_dropbox_account,
+)
 from app.logging_status import get_hour_duration_audit, get_logging_overview
 from app.retention import (
     cleanup_expired_recordings,
@@ -37,6 +44,7 @@ from app.stations import (
     get_timezone_groups,
     load_stations,
     save_station_logo,
+    set_station_dropbox,
     update_station,
 )
 
@@ -509,3 +517,111 @@ def admin_website_save(
         }
     )
     return RedirectResponse(url="/admin/website?notice=saved", status_code=303)
+
+
+@router.get("/dropbox", response_class=HTMLResponse)
+def admin_dropbox(request: Request):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    return templates.TemplateResponse(
+        request,
+        "admin/dropbox.html",
+        {
+            "accounts": list_accounts_for_admin(),
+            "account_options": list_dropbox_accounts_for_admin(),
+            "stations": load_stations(),
+            "dropbox_configured": dropbox_configured(),
+            "date_label": format_dutch_date(),
+            "active_nav": "dropbox",
+            "notice": request.query_params.get("notice", ""),
+            "error_message": request.query_params.get("error", ""),
+            "storage": get_storage_status(),
+        },
+    )
+
+
+@router.post("/dropbox/accounts")
+def admin_dropbox_add_account(
+    request: Request,
+    account_id: str = Form(...),
+    label: str = Form(...),
+    token: str = Form(...),
+    root: str = Form(default="/AudioLogger"),
+):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    try:
+        upsert_dropbox_account(account_id, label, token, root, replace_token=True)
+    except ValueError as exc:
+        return RedirectResponse(url=f"/admin/dropbox?error={quote(str(exc))}", status_code=303)
+
+    return RedirectResponse(url="/admin/dropbox?notice=account_added", status_code=303)
+
+
+@router.post("/dropbox/accounts/{account_id}/edit")
+def admin_dropbox_edit_account(
+    request: Request,
+    account_id: str,
+    label: str = Form(...),
+    token: str = Form(default=""),
+    root: str = Form(default="/AudioLogger"),
+):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    try:
+        upsert_dropbox_account(
+            account_id,
+            label,
+            token,
+            root,
+            replace_token=bool(token.strip()),
+        )
+    except ValueError as exc:
+        return RedirectResponse(url=f"/admin/dropbox?error={quote(str(exc))}", status_code=303)
+
+    return RedirectResponse(url="/admin/dropbox?notice=account_saved", status_code=303)
+
+
+@router.post("/dropbox/accounts/{account_id}/delete")
+def admin_dropbox_delete_account(request: Request, account_id: str):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    try:
+        delete_dropbox_account(account_id)
+    except ValueError as exc:
+        return RedirectResponse(url=f"/admin/dropbox?error={quote(str(exc))}", status_code=303)
+
+    return RedirectResponse(url="/admin/dropbox?notice=account_deleted", status_code=303)
+
+
+@router.post("/dropbox/stations/{station_id}")
+def admin_dropbox_station(
+    request: Request,
+    station_id: str,
+    session: Session = Depends(get_session),
+    dropbox_archive: str | None = Form(default=None),
+    dropbox_account: str = Form(default=""),
+):
+    redirect = admin_redirect_if_needed(request)
+    if redirect:
+        return redirect
+
+    try:
+        set_station_dropbox(
+            session,
+            station_id,
+            dropbox_archive == "on",
+            dropbox_account or None,
+        )
+    except ValueError as exc:
+        return RedirectResponse(url=f"/admin/dropbox?error={quote(str(exc))}", status_code=303)
+
+    return RedirectResponse(url=f"/admin/dropbox?notice=station_saved&focus={station_id}", status_code=303)

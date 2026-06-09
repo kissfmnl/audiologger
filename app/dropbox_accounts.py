@@ -39,7 +39,9 @@ def _load_accounts_from_env_vars() -> dict[str, DropboxAccount]:
 
 
 def load_dropbox_accounts() -> dict[str, DropboxAccount]:
-    accounts: dict[str, DropboxAccount] = {}
+    from app.dropbox_settings import load_admin_dropbox_accounts
+
+    accounts: dict[str, DropboxAccount] = dict(load_admin_dropbox_accounts())
     raw = os.getenv("DROPBOX_ACCOUNTS", "").strip()
     if raw:
         try:
@@ -55,23 +57,25 @@ def load_dropbox_accounts() -> dict[str, DropboxAccount]:
                 if not token:
                     continue
                 root = str(cfg.get("root") or "/AudioLogger").strip().rstrip("/") or "/AudioLogger"
-                accounts[str(account_id)] = {
+                accounts.setdefault(str(account_id), {
                     "label": str(cfg.get("label") or account_id),
                     "token": token,
                     "root": root,
-                }
+                })
 
     for account_id, cfg in _load_accounts_from_env_vars().items():
         accounts.setdefault(account_id, cfg)
 
     legacy_token = os.getenv("DROPBOX_ACCESS_TOKEN", "").strip()
-    if legacy_token and "default" not in accounts:
-        legacy_root = os.getenv("DROPBOX_ROOT_FOLDER", "/AudioLogger").strip().rstrip("/")
-        accounts["default"] = {
-            "label": os.getenv("DROPBOX_LABEL", "Standaard").strip() or "Standaard",
-            "token": legacy_token,
-            "root": legacy_root or "/AudioLogger",
-        }
+    if legacy_token:
+        accounts.setdefault(
+            "default",
+            {
+                "label": os.getenv("DROPBOX_LABEL", "Standaard").strip() or "Standaard",
+                "token": legacy_token,
+                "root": os.getenv("DROPBOX_ROOT_FOLDER", "/AudioLogger").strip().rstrip("/") or "/AudioLogger",
+            },
+        )
 
     return accounts
 
