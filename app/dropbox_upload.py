@@ -1,6 +1,9 @@
 import logging
 import threading
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, select
 
@@ -14,6 +17,8 @@ from app.models import Recording
 
 logger = logging.getLogger(__name__)
 
+UPLOAD_AFTER_HOUR_SECONDS = 60
+
 
 def should_archive_station(station: dict) -> bool:
     return resolve_station_account(station) is not None
@@ -24,6 +29,15 @@ def build_dropbox_remote_path(root: str, station: dict, filename: str) -> str:
     station_id = station.get("id") or "unknown"
     root = root.rstrip("/") or "/AudioLogger"
     return f"{root}/{country}/{station_id}/{filename}"
+
+
+def seconds_until_upload_allowed(station: dict, start_time: datetime | None) -> float:
+    if not start_time:
+        return 0
+    tz = ZoneInfo(station.get("timezone", "Europe/Amsterdam"))
+    hour_start = start_time.replace(tzinfo=tz) if start_time.tzinfo is None else start_time.astimezone(tz)
+    upload_after = hour_start + timedelta(hours=1, seconds=UPLOAD_AFTER_HOUR_SECONDS)
+    return max(0.0, (upload_after - datetime.now(tz)).total_seconds())
 
 
 def upload_recording(file_path: Path, station: dict, recording_id: int | None = None) -> str | None:
@@ -77,16 +91,34 @@ def upload_recording(file_path: Path, station: dict, recording_id: int | None = 
     return remote_path
 
 
+def _upload_when_hour_ready(
+    file_path: Path,
+    station: dict,
+    recording_id: int | None,
+    start_time: datetime | None,
+) -> None:
+    wait = seconds_until_upload_allowed(station, start_time)
+    if wait > 0:
+        logger.info(
+            "Dropbox upload for %s wacht %.0fs tot na uur-einde",
+            file_path.name,
+            wait,
+        )
+        time.sleep(wait)
+    upload_recording(file_path, station, recording_id)
+
+
 def ensure_dropbox_upload_async(
     file_path: Path,
     station: dict,
     recording_id: int | None = None,
+    start_time: datetime | None = None,
 ) -> None:
     if not should_archive_station(station):
         return
     threading.Thread(
-        target=upload_recording,
-        args=(file_path, station, recording_id),
+        target=_upload_when_hour_ready,
+        args=(file_path, station, recording_id, start_time),
         daemon=True,
         name=f"dropbox-{file_path.stem}",
     ).start()

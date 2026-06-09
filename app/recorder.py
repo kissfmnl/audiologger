@@ -548,7 +548,9 @@ def _record_station_locked(station: dict, start_time: datetime, tz: ZoneInfo) ->
 
         ensure_peaks_async(output_path)
         ensure_galio_async(output_path)
-        ensure_dropbox_upload_async(output_path, station, recording.id if recording else None)
+        ensure_dropbox_upload_async(
+            output_path, station, recording.id if recording else None, start_time
+        )
         return recording
     finally:
         shutil.rmtree(parts_dir, ignore_errors=True)
@@ -581,7 +583,9 @@ def finalize_stale_recording(
         )
         ensure_peaks_async(output_path)
         ensure_galio_async(output_path)
-        ensure_dropbox_upload_async(output_path, station, updated.id if updated else None)
+        ensure_dropbox_upload_async(
+            output_path, station, updated.id if updated else None, start_time
+        )
         logger.info("Finalized stale recording as completed: %s %s", station["id"], start_time)
         return updated
 
@@ -601,7 +605,9 @@ def finalize_stale_recording(
             )
             ensure_peaks_async(output_path)
             ensure_galio_async(output_path)
-            ensure_dropbox_upload_async(output_path, station, updated.id if updated else None)
+            ensure_dropbox_upload_async(
+                output_path, station, updated.id if updated else None, start_time
+            )
             shutil.rmtree(parts_dir, ignore_errors=True)
             logger.info("Salvaged stale recording from parts: %s %s", station["id"], start_time)
             return updated

@@ -18,6 +18,7 @@ from app.recorder import (
     record_station,
 )
 from app.retention import cleanup_expired_recordings
+from app.dropbox_status import upload_previous_hour_recordings
 from app.dropbox_upload import retry_pending_dropbox_uploads
 from app.stations import get_station_by_id, load_stations, should_record_station
 
@@ -301,6 +302,13 @@ def reload_scheduler() -> BackgroundScheduler:
         retry_pending_dropbox_uploads,
         trigger=CronTrigger(minute="*/30"),
         id="retry_dropbox_uploads",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        upload_previous_hour_recordings,
+        trigger=CronTrigger(minute="2-8", timezone=ZoneInfo("Europe/Amsterdam")),
+        id="dropbox_previous_hour",
         replace_existing=True,
     )
 

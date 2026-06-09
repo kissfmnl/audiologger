@@ -14,6 +14,7 @@ from sqlmodel import Session
 from app.admin_auth import is_authenticated, login, logout
 from app.database import BASE_DIR, get_session, get_storage_status, storage_capacity_plan
 from app.dropbox_accounts import dropbox_configured, list_dropbox_accounts_for_admin, station_archive_is_ready
+from app.dropbox_status import get_dropbox_archive_checklist
 from app.dropbox_settings import (
     delete_dropbox_account,
     list_accounts_for_admin,
@@ -525,6 +526,8 @@ def admin_dropbox(request: Request):
     if redirect:
         return redirect
 
+    checklist = get_dropbox_archive_checklist()
+
     return templates.TemplateResponse(
         request,
         "admin/dropbox.html",
@@ -532,6 +535,7 @@ def admin_dropbox(request: Request):
             "accounts": list_accounts_for_admin(),
             "account_options": list_dropbox_accounts_for_admin(),
             "stations": load_stations(),
+            "checklist": checklist,
             "dropbox_configured": dropbox_configured(),
             "date_label": format_dutch_date(),
             "active_nav": "dropbox",
