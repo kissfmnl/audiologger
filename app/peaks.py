@@ -11,8 +11,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-PEAK_POINTS = 512
-WIRE_BARS = 512
+PEAK_POINTS = 8000
+WIRE_BARS = 8000
+PEAK_DECODE_SAMPLE_RATE = 8000
 REGION_MAX_BARS = 8192
 BYTES_PER_SECOND_128K = 16000
 _response_cache: dict[str, tuple[int, int, dict]] = {}
@@ -52,12 +53,12 @@ def peaks_cache_exists(path: Path) -> bool:
 
 
 def _wire_response(peaks: list[float], duration: float, precise: bool) -> dict:
-    wire = downsample_peaks(peaks, WIRE_BARS)
     return {
-        "peaks": wire,
+        "peaks": peaks,
         "duration": duration,
         "ready": True,
         "precise": precise,
+        "peak_points": len(peaks),
     }
 
 
@@ -473,7 +474,83 @@ def read_peaks_region(
     }
 
 
+def _decode_peaks_broadcast(
+    path: Path, num_points: int = PEAK_POINTS
+) -> tuple[list[float], float]:
+    """Broadcast-style peaks: 8 kHz mono PCM → max-abs buckets (~8000 points)."""
+    duration = max(get_audio_duration(path), 1.0)
+    try:
+        process = subprocess.Popen(
+            [
+                "ffmpeg",
+                "-threads",
+                "0",
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(path),
+                "-ac",
+                "1",
+                "-ar",
+                str(PEAK_DECODE_SAMPLE_RATE),
+                "-f",
+                "f32le",
+                "-",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        logger.warning("ffmpeg broadcast peak decode failed for %s: %s", path, exc)
+        return [], duration
+
+    samples: list[float] = []
+    buffer = b""
+    assert process.stdout is not None
+    while True:
+        chunk = process.stdout.read(262144)
+        if not chunk:
+            break
+        buffer += chunk
+        offset = 0
+        while offset + 4 <= len(buffer):
+            samples.append(abs(struct.unpack_from("<f", buffer, offset)[0]))
+            offset += 4
+        buffer = buffer[offset:]
+
+    try:
+        process.terminate()
+        process.wait(timeout=2)
+    except (subprocess.TimeoutExpired, OSError):
+        process.kill()
+
+    if not samples:
+        return [], duration
+
+    chunk_size = max(1, len(samples) // num_points)
+    peaks: list[float] = []
+    for index in range(0, len(samples), chunk_size):
+        window = samples[index : index + chunk_size]
+        if window:
+            peaks.append(max(window))
+
+    peaks = peaks[:num_points]
+    max_peak = max(peaks) if peaks else 0.0
+    if max_peak > 0:
+        peaks = [round(peak / max_peak, 4) for peak in peaks]
+
+    while len(peaks) < num_points:
+        peaks.append(0.0)
+
+    return peaks[:num_points], duration
+
+
 def _decode_peaks(path: Path, bars: int) -> tuple[list[float], float]:
+    peaks, duration = _decode_peaks_broadcast(path, bars)
+    if peaks and max(peaks) > 0:
+        return peaks, duration
     peaks, duration = _decode_peaks_audiowaveform(path, bars)
     if peaks:
         return peaks, duration
@@ -491,13 +568,10 @@ def load_cached_peaks(path: Path) -> tuple[list[float], float] | None:
             return None
         if int(cache.get("source_size", -1)) != int(path.stat().st_size):
             return None
-        wire = cache.get("wire_peaks")
-        if wire:
-            return wire, float(cache.get("duration", 3600))
-        peaks = cache.get("peaks", [])
+        peaks = cache.get("peaks") or cache.get("wire_peaks") or []
         duration = float(cache.get("duration", 3600))
-        if peaks:
-            return downsample_peaks(peaks, WIRE_BARS), duration
+        if peaks and len(peaks) >= PEAK_POINTS:
+            return peaks[:PEAK_POINTS], duration
     except (OSError, ValueError, TypeError):
         return None
     return None
@@ -507,12 +581,12 @@ def save_cached_peaks(path: Path, peaks: list[float], duration: float) -> Path:
     cache_path = peaks_cache_path(path)
     try:
         stat = path.stat()
-        wire_peaks = downsample_peaks(peaks, WIRE_BARS)
         cache_path.write_text(
             json.dumps(
                 {
                     "duration": duration,
-                    "wire_peaks": wire_peaks,
+                    "peaks": peaks[:PEAK_POINTS],
+                    "peak_points": min(len(peaks), PEAK_POINTS),
                     "source_mtime": int(stat.st_mtime),
                     "source_size": int(stat.st_size),
                 },

@@ -37,9 +37,9 @@
     const TIME_AXIS_HEIGHT_CSS = 18;
     const ZOOM_SLIDER_STEPS = 400;
     const WHEEL_ZOOM_SENSITIVITY = 0.007;
-    const PEAKS_UPSAMPLE_MIN = 8192;
     const KEYBOARD_ZOOM_FACTOR = 0.54;
-    const REGION_DETAIL_THRESHOLD_SEC = 480;
+    const PEAK_SAMPLE_RATE = 8000;
+    const ZOOM_SAMPLES_PER_PIXEL = [512, 1024, 2048, 4096];
     const REGION_MAX_BARS = 8192;
     const DRAG_SELECT_THRESHOLD_PX = 5;
     const PAN_STEPS = 1000;
@@ -325,7 +325,61 @@
     }
 
     function shouldUseDetailPeaks() {
-        return duration > 0 && duration * viewSpan <= REGION_DETAIL_THRESHOLD_SEC && viewSpan < 1 - 1e-9;
+        if (!peaks.length || !duration || viewSpan >= 1 - 1e-9) {
+            return false;
+        }
+        const width = Math.max(1, canvas.width);
+        const peaksInView = Math.max(1, Math.floor(peaks.length * viewSpan));
+        return peaksInView < width * 0.85;
+    }
+
+    function getSamplesPerPixel() {
+        if (!duration || !canvas.width) {
+            return ZOOM_SAMPLES_PER_PIXEL[0];
+        }
+        const visibleSec = duration * viewSpan;
+        return (visibleSec * PEAK_SAMPLE_RATE) / canvas.width;
+    }
+
+    function getActiveZoomLevel() {
+        const samplesPerPixel = getSamplesPerPixel();
+        for (const level of ZOOM_SAMPLES_PER_PIXEL) {
+            if (samplesPerPixel <= level * 1.25) {
+                return level;
+            }
+        }
+        return ZOOM_SAMPLES_PER_PIXEL[ZOOM_SAMPLES_PER_PIXEL.length - 1];
+    }
+
+    function bucketPeaksMax(source, width) {
+        const samples = new Array(width);
+        const srcLen = source.length;
+        if (!srcLen || !width) {
+            return samples;
+        }
+        for (let x = 0; x < width; x += 1) {
+            const from = Math.floor((x / width) * srcLen);
+            const to = Math.max(from + 1, Math.ceil(((x + 1) / width) * srcLen));
+            let max = 0;
+            for (let i = from; i < to; i += 1) {
+                max = Math.max(max, source[i] || 0);
+            }
+            samples[x] = max;
+        }
+        return samples;
+    }
+
+    function getPeaksSliceForView() {
+        const startIdx = Math.max(0, Math.floor(viewStart * peaks.length));
+        const endIdx = Math.min(
+            peaks.length,
+            Math.ceil((viewStart + viewSpan) * peaks.length),
+        );
+        return peaks.slice(startIdx, Math.max(startIdx + 1, endIdx));
+    }
+
+    function getZoomViewSamples(width) {
+        return bucketPeaksMax(getPeaksSliceForView(), width);
     }
 
     function detailPeaksMatchView() {
@@ -372,7 +426,11 @@
 
         const requestStart = viewStart;
         const requestSpan = viewSpan;
-        const bars = Math.min(REGION_MAX_BARS, Math.max(1024, Math.ceil(canvas.width * 3)));
+        const zoomLevel = getActiveZoomLevel();
+        const bars = Math.min(
+            REGION_MAX_BARS,
+            Math.max(1024, Math.ceil(canvas.width * (PEAK_SAMPLE_RATE / zoomLevel))),
+        );
         const cacheKey = `${peaksUrl}:${requestStart.toFixed(6)}:${requestSpan.toFixed(6)}:${bars}`;
         const generation = ++detailFetchGeneration;
 
@@ -409,73 +467,7 @@
     }
 
     function detailPeaksToCanvas(source, width) {
-        const samples = new Array(width);
-        const srcLen = source.length;
-        if (!srcLen) {
-            return samples;
-        }
-        for (let x = 0; x < width; x += 1) {
-            const from = Math.floor((x / width) * srcLen);
-            const to = Math.max(from + 1, Math.ceil(((x + 1) / width) * srcLen));
-            let max = 0;
-            for (let i = from; i < to; i += 1) {
-                max = Math.max(max, source[i] || 0);
-            }
-            samples[x] = max;
-        }
-        return samples;
-    }
-
-    function upsamplePeaks(source) {
-        if (!source.length) {
-            return [];
-        }
-        const targetLen = Math.max(PEAKS_UPSAMPLE_MIN, source.length * 16);
-        if (source.length >= targetLen) {
-            return source.slice();
-        }
-        const out = new Array(targetLen);
-        for (let i = 0; i < targetLen; i += 1) {
-            const pos = (i / (targetLen - 1)) * (source.length - 1);
-            const i0 = Math.floor(pos);
-            const i1 = Math.min(source.length - 1, i0 + 1);
-            const t = pos - i0;
-            out[i] = source[i0] * (1 - t) + source[i1] * t;
-        }
-        return out;
-    }
-
-    function peakAtRatio(ratio) {
-        if (!peaks.length) {
-            return 0;
-        }
-        const clamped = Math.min(1, Math.max(0, ratio));
-        const pos = clamped * (peaks.length - 1);
-        const i0 = Math.floor(pos);
-        const i1 = Math.min(peaks.length - 1, i0 + 1);
-        const t = pos - i0;
-        return peaks[i0] * (1 - t) + peaks[i1] * t;
-    }
-
-    function getVisiblePeaks(width) {
-        if (!peaks.length) {
-            return [];
-        }
-        const span = getViewSpan();
-        const samples = new Array(width);
-        const sliceWidth = span / width;
-
-        for (let x = 0; x < width; x += 1) {
-            const center = viewStart + ((x + 0.5) / width) * span;
-            let max = 0;
-            const steps = Math.max(4, Math.ceil(sliceWidth * peaks.length * 5));
-            for (let s = 0; s < steps; s += 1) {
-                const ratio = center + (s / (steps - 1) - 0.5) * sliceWidth;
-                max = Math.max(max, peakAtRatio(ratio));
-            }
-            samples[x] = max;
-        }
-        return samples;
+        return bucketPeaksMax(source, width);
     }
 
     function drawFilledWave(samples, width, height, mid, color, clipEndX) {
@@ -558,13 +550,14 @@
         }
 
         const useDetail = shouldUseDetailPeaks() && detailPeaksMatchView();
+        const useMinMax = useDetail || viewSpan < 1 - 1e-9;
         const samples = useDetail
             ? detailPeaksToCanvas(detailPeaks, width)
-            : getVisiblePeaks(width);
+            : getZoomViewSamples(width);
         const progress = timeToRatio(audio ? audio.currentTime : 0);
         const playheadX = ratioToCanvasX(progress);
 
-        if (useDetail) {
+        if (useMinMax) {
             drawMinMaxWave(samples, width, waveHeight, mid, WAVE_COLOR_IDLE, null);
             if (playheadX > 0) {
                 drawMinMaxWave(samples, width, waveHeight, mid, WAVE_COLOR_PLAYED, playheadX);
@@ -643,7 +636,7 @@
         const mid = height / 2;
         overviewCtx.clearRect(0, 0, width, height);
 
-        const samples = getVisiblePeaksForRange(width, 0, 1);
+        const samples = bucketPeaksMax(peaks, width);
         drawFilledWaveOnContext(overviewCtx, samples, width, height, mid, WAVE_COLOR_IDLE, null);
 
         const span = getViewSpan();
@@ -660,26 +653,6 @@
             overviewCtx.fillStyle = WAVE_COLOR_CURSOR;
             overviewCtx.fillRect(Math.max(0, playX - 1), 0, 2, height);
         }
-    }
-
-    function getVisiblePeaksForRange(width, rangeStart, rangeEnd) {
-        if (!peaks.length) {
-            return [];
-        }
-        const span = rangeEnd - rangeStart;
-        const samples = new Array(width);
-        const sliceWidth = span / width;
-        for (let x = 0; x < width; x += 1) {
-            const center = rangeStart + ((x + 0.5) / width) * span;
-            let max = 0;
-            const steps = Math.max(4, Math.ceil(sliceWidth * peaks.length * 5));
-            for (let s = 0; s < steps; s += 1) {
-                const ratio = center + (s / (steps - 1) - 0.5) * sliceWidth;
-                max = Math.max(max, peakAtRatio(ratio));
-            }
-            samples[x] = max;
-        }
-        return samples;
     }
 
     function drawFilledWaveOnContext(targetCtx, samples, width, height, mid, color, clipEndX) {
@@ -1027,7 +1000,7 @@
     }
 
     function applyPeaksData(data) {
-        peaks = upsamplePeaks(peakValues(data));
+        peaks = peakValues(data);
         duration = data.duration || duration || 3600;
         totalTimeEl.textContent = formatTime(duration);
         refreshZoomLimits();
