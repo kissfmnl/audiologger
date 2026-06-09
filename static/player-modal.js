@@ -33,10 +33,12 @@
     const overviewCtx = overviewCanvas ? overviewCanvas.getContext("2d") : null;
     const peaksCache = new Map();
     const peaksInflight = new Map();
-    const MIN_ZOOM = 1;
-    const TARGET_VISIBLE_SECONDS = 60;
-    const TIME_AXIS_HEIGHT_CSS = 22;
-    let maxZoom = MIN_ZOOM;
+    const TARGET_VISIBLE_SECONDS = 120;
+    const TIME_AXIS_HEIGHT_CSS = 18;
+    const ZOOM_SLIDER_STEPS = 400;
+    const WHEEL_ZOOM_SENSITIVITY = 0.0011;
+    const KEYBOARD_ZOOM_FACTOR = 0.88;
+    const DRAG_SELECT_THRESHOLD_PX = 5;
     const PAN_STEPS = 1000;
     const WAVEFORM_WAIT_SEC = 3;
     const SELECTION_DEFAULT_SEC = 10;
@@ -66,11 +68,12 @@
     let duration = 0;
     let rafId = null;
     let peaksUrl = "";
-    let zoom = MIN_ZOOM;
+    let viewSpan = 1;
     let viewStart = 0;
     let lastFocusInView = 0.5;
     let pointerOverCanvas = false;
     let syncingZoomSlider = false;
+    let dragSelect = null;
     let selectionRegion = null;
     let currentRecordingId = null;
     let canTrim = false;
@@ -137,7 +140,7 @@
     }
 
     function timeAxisStep(visibleSeconds) {
-        if (visibleSeconds <= 90) {
+        if (visibleSeconds <= 150) {
             return 10;
         }
         if (visibleSeconds <= 5 * 60) {
@@ -155,20 +158,24 @@
         return 600;
     }
 
-    function refreshMaxZoom() {
-        maxZoom = Math.max(MIN_ZOOM, Math.ceil((duration || 3600) / TARGET_VISIBLE_SECONDS));
-        if (zoomSlider) {
-            zoomSlider.max = String(maxZoom);
+    function getMinViewSpan() {
+        if (!duration) {
+            return 1;
         }
-        if (zoom > maxZoom) {
-            setZoomLevel(maxZoom, lastFocusInView);
+        return Math.min(1, TARGET_VISIBLE_SECONDS / duration);
+    }
+
+    function refreshZoomLimits() {
+        const minSpan = getMinViewSpan();
+        if (viewSpan < minSpan) {
+            setViewSpan(minSpan, lastFocusInView);
         } else {
             updateZoomUi();
         }
     }
 
     function getViewSpan() {
-        return 1 / zoom;
+        return viewSpan;
     }
 
     function clampViewStart(start) {
@@ -176,13 +183,44 @@
         return Math.min(Math.max(0, start), Math.max(0, 1 - span));
     }
 
+    function formatVisibleWindow(seconds) {
+        const total = Math.max(1, Math.round(seconds || 0));
+        if (total >= 3600) {
+            return "1 uur";
+        }
+        if (total >= 60) {
+            const mins = Math.floor(total / 60);
+            const secs = total % 60;
+            return secs ? `${mins}:${secs.toString().padStart(2, "0")}` : `${mins} min`;
+        }
+        return `${total} sec`;
+    }
+
+    function spanToSliderValue(span) {
+        const minSpan = getMinViewSpan();
+        if (span >= 1) {
+            return ZOOM_SLIDER_STEPS;
+        }
+        const ratio = Math.log(span / minSpan) / Math.log(1 / minSpan);
+        return Math.round(Math.min(ZOOM_SLIDER_STEPS, Math.max(0, ratio * ZOOM_SLIDER_STEPS)));
+    }
+
+    function sliderValueToSpan(value) {
+        const minSpan = getMinViewSpan();
+        if (value >= ZOOM_SLIDER_STEPS) {
+            return 1;
+        }
+        const ratio = value / ZOOM_SLIDER_STEPS;
+        return minSpan * Math.pow(1 / minSpan, ratio);
+    }
+
     function updateZoomUi() {
         if (zoomLabel) {
-            zoomLabel.textContent = `${zoom}×`;
+            zoomLabel.textContent = formatVisibleWindow(duration * viewSpan);
         }
         if (zoomSlider) {
             syncingZoomSlider = true;
-            zoomSlider.value = String(zoom);
+            zoomSlider.value = String(spanToSliderValue(viewSpan));
             syncingZoomSlider = false;
         }
         updatePanSlider();
@@ -192,7 +230,7 @@
         if (!panWrap || !panSlider) {
             return;
         }
-        if (zoom <= MIN_ZOOM) {
+        if (viewSpan >= 1 - 1e-9) {
             panWrap.classList.add("hidden");
             return;
         }
@@ -211,15 +249,16 @@
         drawWaveform();
     }
 
-    function setZoomLevel(newZoom, focusInView = lastFocusInView) {
-        const oldSpan = getViewSpan();
+    function setViewSpan(newSpan, focusInView = lastFocusInView) {
+        const minSpan = getMinViewSpan();
+        const oldSpan = viewSpan;
         const focusPoint = viewStart + focusInView * oldSpan;
-        zoom = Math.min(maxZoom, Math.max(MIN_ZOOM, Math.round(newZoom)));
-        if (zoom === MIN_ZOOM) {
+        viewSpan = Math.min(1, Math.max(minSpan, newSpan));
+        if (viewSpan >= 1 - 1e-9) {
+            viewSpan = 1;
             viewStart = 0;
         } else {
-            const newSpan = getViewSpan();
-            viewStart = clampViewStart(focusPoint - focusInView * newSpan);
+            viewStart = clampViewStart(focusPoint - focusInView * viewSpan);
         }
         lastFocusInView = focusInView;
         updateZoomUi();
@@ -227,19 +266,28 @@
     }
 
     function resetZoom() {
-        setZoomLevel(MIN_ZOOM, 0.5);
-    }
-
-    function zoomAt(factor, focusInView) {
-        setZoomLevel(zoom * factor, focusInView);
+        viewSpan = 1;
+        viewStart = 0;
+        updateZoomUi();
+        drawWaveform();
     }
 
     function zoomIn(focusInView) {
-        zoomAt(2, focusInView ?? lastFocusInView);
+        setViewSpan(viewSpan * KEYBOARD_ZOOM_FACTOR, focusInView ?? lastFocusInView);
     }
 
     function zoomOut(focusInView) {
-        zoomAt(0.5, focusInView ?? lastFocusInView);
+        setViewSpan(viewSpan / KEYBOARD_ZOOM_FACTOR, focusInView ?? lastFocusInView);
+    }
+
+    function normalizeWheelDelta(event) {
+        if (event.deltaMode === 1) {
+            return event.deltaY * 16;
+        }
+        if (event.deltaMode === 2) {
+            return event.deltaY * window.innerHeight;
+        }
+        return event.deltaY;
     }
 
     function resizeCanvas() {
@@ -381,7 +429,7 @@
         ctx.fillStyle = "#E5E7EB";
         ctx.fillRect(0, height - axisH, width, 1);
         ctx.fillStyle = "#64748b";
-        ctx.font = `${Math.max(10, Math.floor(width / 90))}px Inter, system-ui, sans-serif`;
+        ctx.font = `${Math.max(8, Math.floor(width / 140))}px Inter, system-ui, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "bottom";
 
@@ -789,7 +837,7 @@
         peaks = peakValues(data);
         duration = data.duration || duration || 3600;
         totalTimeEl.textContent = formatTime(duration);
-        refreshMaxZoom();
+        refreshZoomLimits();
         resizeCanvas();
         revealControls();
     }
@@ -797,6 +845,12 @@
     function pointerToFocusRatio(event) {
         const rect = canvas.getBoundingClientRect();
         return Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    }
+
+    function pointerToGlobalRatio(event) {
+        const focus = pointerToFocusRatio(event);
+        const span = getViewSpan();
+        return Math.min(1, Math.max(0, viewStart + focus * span));
     }
 
     function seekFromPointer(event) {
@@ -903,7 +957,7 @@
                 if (audio.duration && Number.isFinite(audio.duration)) {
                     duration = audio.duration;
                     totalTimeEl.textContent = formatTime(duration);
-                    refreshMaxZoom();
+                    refreshZoomLimits();
                     resizeCanvas();
                 }
             });
@@ -954,7 +1008,7 @@
                 return;
             }
             const focus = pointerOverCanvas ? lastFocusInView : 0.5;
-            setZoomLevel(Number(zoomSlider.value), focus);
+            setViewSpan(sliderValueToSpan(Number(zoomSlider.value)), focus);
         });
     }
 
@@ -970,24 +1024,65 @@
         pointerOverCanvas = true;
     });
 
-    canvas.addEventListener("mouseleave", () => {
-        pointerOverCanvas = false;
-    });
-
     canvas.addEventListener("mousemove", (event) => {
         lastFocusInView = pointerToFocusRatio(event);
+        if (dragSelect && canTrim && duration) {
+            if (Math.abs(event.clientX - dragSelect.startX) >= DRAG_SELECT_THRESHOLD_PX) {
+                dragSelect.moved = true;
+                const endRatio = pointerToGlobalRatio(event);
+                const startRatio = Math.min(dragSelect.startRatio, endRatio);
+                const endRatioFinal = Math.max(dragSelect.startRatio, endRatio);
+                selectionRegion = {
+                    start: startRatio * duration,
+                    end: Math.max(startRatio * duration + 0.1, endRatioFinal * duration),
+                };
+                updateSelectionUi();
+                drawWaveform();
+            }
+        }
     });
 
     canvas.addEventListener("wheel", (event) => {
         event.preventDefault();
         const focus = pointerToFocusRatio(event);
         lastFocusInView = focus;
-        if (event.deltaY < 0) {
-            zoomIn(focus);
-        } else {
-            zoomOut(focus);
-        }
+        const delta = normalizeWheelDelta(event);
+        const factor = Math.exp(-delta * WHEEL_ZOOM_SENSITIVITY);
+        setViewSpan(getViewSpan() * factor, focus);
     }, { passive: false });
+
+    canvas.addEventListener("mousedown", (event) => {
+        if (!canTrim || !duration || event.button !== 0) {
+            return;
+        }
+        dragSelect = {
+            startRatio: pointerToGlobalRatio(event),
+            startX: event.clientX,
+            moved: false,
+        };
+    });
+
+    canvas.addEventListener("mouseup", (event) => {
+        if (event.button !== 0) {
+            return;
+        }
+        if (dragSelect) {
+            const wasDrag = dragSelect.moved;
+            dragSelect = null;
+            if (!wasDrag) {
+                seekFromPointer(event);
+            }
+            return;
+        }
+        if (!canTrim) {
+            seekFromPointer(event);
+        }
+    });
+
+    canvas.addEventListener("mouseleave", () => {
+        pointerOverCanvas = false;
+        dragSelect = null;
+    });
 
     if (overviewCanvas) {
         overviewCanvas.addEventListener("click", (event) => {
@@ -1001,8 +1096,6 @@
             drawWaveform();
         });
     }
-
-    canvas.addEventListener("click", seekFromPointer);
 
     canvas.addEventListener("dblclick", () => {
         if (!audio) {
@@ -1050,6 +1143,10 @@
             zoomOut(lastFocusInView);
         } else if (event.key === "0") {
             resetZoom();
+        } else if (canTrim && (event.key === "[" || event.code === "BracketLeft")) {
+            setSelectionStart();
+        } else if (canTrim && (event.key === "]" || event.code === "BracketRight")) {
+            setSelectionEnd();
         } else if (
             (event.code === "Space" || event.key === " ")
             && event.target.tagName !== "INPUT"

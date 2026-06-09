@@ -88,8 +88,8 @@
 <div id="player-modal" class="fixed inset-0 z-[100] hidden" role="dialog" aria-modal="true">
     <div id="player-modal-backdrop" class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
     <div class="absolute inset-0 flex items-center justify-center p-3 sm:p-5 pointer-events-none">
-        <div id="player-modal-panel" class="relative w-full max-w-[min(1600px,98vw)] max-h-[96vh] overflow-y-auto bg-surface rounded-2xl shadow-2xl border border-gray-100 pointer-events-auto">
-            <div class="flex items-start justify-between gap-4 px-6 py-5 border-b border-gray-100">
+        <div id="player-modal-panel" class="relative w-full max-w-[min(1280px,94vw)] max-h-[92vh] overflow-y-auto bg-surface rounded-2xl shadow-2xl border border-gray-100 pointer-events-auto">
+            <div class="flex items-start justify-between gap-4 px-5 py-4 border-b border-gray-100">
                 <div class="min-w-0">
                     <h2 id="player-modal-title" class="text-lg font-semibold text-heading truncate">Opname</h2>
                     <p id="player-modal-subtitle" class="text-sm text-muted">Laden…</p>
@@ -103,11 +103,11 @@
                 </button>
             </div>
 
-            <div class="px-6 py-5">
-                <p class="text-xs text-muted mb-2">Scroll op wavevorm om te zoomen · klik om te seeken</p>
+            <div class="px-5 py-4">
+                <p class="text-xs text-muted mb-2">Scroll = zoom · klik = seek · sleep = selectie · [ ] = begin/einde</p>
                 <div class="relative rounded-xl overflow-hidden bg-gray-50 border border-gray-100">
-                    <canvas id="player-modal-canvas" class="w-full h-52 sm:h-64 md:h-72 lg:h-80 block cursor-pointer touch-none"></canvas>
-                    <canvas id="player-modal-overview" class="w-full h-16 sm:h-20 block cursor-pointer touch-none border-t border-gray-200 bg-white"></canvas>
+                    <canvas id="player-modal-canvas" class="w-full h-44 sm:h-52 md:h-60 block cursor-pointer touch-none"></canvas>
+                    <canvas id="player-modal-overview" class="w-full h-12 sm:h-14 block cursor-pointer touch-none border-t border-gray-200 bg-white"></canvas>
                     <div id="player-modal-loading"
                          class="absolute inset-0 flex items-center justify-center bg-gray-50/95 backdrop-blur-sm">
                         <div class="text-center">
@@ -131,10 +131,10 @@
                 <div class="mt-3 space-y-2">
                     <div class="flex items-center gap-3">
                         <span class="text-xs text-muted w-10 shrink-0">Zoom</span>
-                        <input id="player-modal-zoom" type="range" min="1" max="3" value="1" step="1"
+                        <input id="player-modal-zoom" type="range" min="0" max="400" value="400" step="1"
                                class="flex-1 h-2 rounded-full appearance-none bg-gray-200 accent-purple-600 cursor-pointer"
                                aria-label="Zoomniveau">
-                        <span id="player-modal-zoom-label" class="text-xs font-mono text-heading w-10 text-right shrink-0">1×</span>
+                        <span id="player-modal-zoom-label" class="text-xs font-mono text-heading w-14 text-right shrink-0">1 uur</span>
                     </div>
                     <div id="player-modal-pan-wrap" class="hidden">
                         <div class="flex items-center gap-3">
@@ -165,7 +165,7 @@
                     </div>
 
                     <div id="player-modal-trim-section" class="hidden mt-5 pt-4 border-t border-gray-100">
-                        <p class="text-xs text-muted mb-3">Speel af en zet begin- en eindpunt met de knoppen (spatie = play/pause).</p>
+                        <p class="text-xs text-muted mb-3">Sleep over de wavevorm om te selecteren, of gebruik [ en ] bij de afspeelkop.</p>
                         <div class="grid grid-cols-2 gap-3 mb-3">
                             <div class="bg-gray-50 rounded-xl p-3 border border-gray-100">
                                 <p class="text-[11px] text-muted mb-0.5">Begin</p>
@@ -201,5 +201,5 @@
 
 {% block scripts %}
 <script id="peaks-bootstrap" type="application/json">{{ peaks_bootstrap | tojson }}</script>
-<script src="/static/player-modal.js?v=10"></script>
+<script src="/static/player-modal.js?v=11"></script>
 {% endblock %}
