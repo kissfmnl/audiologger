@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 import shutil
 from datetime import date, datetime
@@ -676,3 +677,41 @@ def save_station_logo(station_id: str, image_bytes: bytes) -> str:
 
     backup_stations_to_disk()
     return filename
+
+
+def sync_dropbox_stations_from_env() -> None:
+    """Zet dropbox_archive aan/uit op basis van DROPBOX_STATION_IDS (komma-gescheiden)."""
+    raw = os.getenv("DROPBOX_STATION_IDS", "").strip()
+    if not raw:
+        return
+
+    target_ids = {part.strip().lower() for part in raw.split(",") if part.strip()}
+    if not target_ids:
+        return
+
+    accounts = load_dropbox_accounts()
+    if not accounts:
+        logger.warning("DROPBOX_STATION_IDS is gezet maar geen Dropbox-accounts gevonden")
+        return
+
+    preferred_account = os.getenv("DROPBOX_DEFAULT_ACCOUNT", "kiss").strip().lower()
+    account_id = preferred_account if preferred_account in accounts else next(iter(accounts))
+
+    with Session(engine) as session:
+        changed = False
+        for station in session.exec(select(Station)).all():
+            should_archive = station.id in target_ids
+            new_account = account_id if should_archive else None
+            if station.dropbox_archive != should_archive or station.dropbox_account != new_account:
+                station.dropbox_archive = should_archive
+                station.dropbox_account = new_account
+                session.add(station)
+                changed = True
+        if changed:
+            session.commit()
+            backup_stations_to_disk()
+            logger.info(
+                "Dropbox sync: archief voor %s (account %s), uit voor overige zenders",
+                ", ".join(sorted(target_ids)),
+                account_id,
+            )

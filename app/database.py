@@ -214,6 +214,7 @@ def init_db() -> None:
         migrate_station_schema,
         reconcile_logos,
         restore_stations_from_backup_if_needed,
+        sync_dropbox_stations_from_env,
     )
 
     migrate_station_schema()
@@ -221,6 +222,7 @@ def init_db() -> None:
     restored = restore_stations_from_backup_if_needed()
     ensure_stations_backup_exists()
     reconcile_logos()
+    sync_dropbox_stations_from_env()
 
     with Session(engine) as session:
         station_count = len(session.exec(select(Station)).all())
