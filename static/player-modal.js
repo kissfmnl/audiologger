@@ -36,9 +36,11 @@
     const TARGET_VISIBLE_SECONDS = 120;
     const TIME_AXIS_HEIGHT_CSS = 18;
     const ZOOM_SLIDER_STEPS = 400;
-    const WHEEL_ZOOM_SENSITIVITY = 0.0032;
+    const WHEEL_ZOOM_SENSITIVITY = 0.007;
     const PEAKS_UPSAMPLE_MIN = 8192;
-    const KEYBOARD_ZOOM_FACTOR = 0.76;
+    const KEYBOARD_ZOOM_FACTOR = 0.54;
+    const REGION_DETAIL_THRESHOLD_SEC = 480;
+    const REGION_MAX_BARS = 8192;
     const DRAG_SELECT_THRESHOLD_PX = 5;
     const PAN_STEPS = 1000;
     const WAVEFORM_WAIT_SEC = 3;
@@ -66,6 +68,11 @@
     let audio = null;
     let activeButton = null;
     let peaks = [];
+    let detailPeaks = [];
+    let detailPeaksMeta = null;
+    let detailFetchTimer = null;
+    let detailFetchGeneration = 0;
+    const detailPeaksCache = new Map();
     let duration = 0;
     let rafId = null;
     let peaksUrl = "";
@@ -247,6 +254,7 @@
     function setViewStart(start) {
         viewStart = clampViewStart(start);
         updatePanSlider();
+        scheduleDetailPeaksFetch();
         drawWaveform();
     }
 
@@ -263,12 +271,14 @@
         }
         lastFocusInView = focusInView;
         updateZoomUi();
+        scheduleDetailPeaksFetch();
         drawWaveform();
     }
 
     function resetZoom() {
         viewSpan = 1;
         viewStart = 0;
+        clearDetailPeaks();
         updateZoomUi();
         drawWaveform();
     }
@@ -302,6 +312,7 @@
             overviewCanvas.height = Math.max(1, Math.floor(overviewRect.height * dpr));
         }
         drawWaveform();
+        scheduleDetailPeaksFetch();
     }
 
     function timeToRatio(time) {
@@ -311,6 +322,108 @@
     function ratioToCanvasX(ratio) {
         const span = getViewSpan();
         return ((ratio - viewStart) / span) * canvas.width;
+    }
+
+    function shouldUseDetailPeaks() {
+        return duration > 0 && duration * viewSpan <= REGION_DETAIL_THRESHOLD_SEC && viewSpan < 1 - 1e-9;
+    }
+
+    function detailPeaksMatchView() {
+        if (!detailPeaksMeta || !detailPeaks.length) {
+            return false;
+        }
+        return Math.abs(detailPeaksMeta.start - viewStart) < 1e-5
+            && Math.abs(detailPeaksMeta.span - viewSpan) < 1e-5;
+    }
+
+    function clearDetailPeaks() {
+        detailPeaks = [];
+        detailPeaksMeta = null;
+        if (detailFetchTimer) {
+            clearTimeout(detailFetchTimer);
+            detailFetchTimer = null;
+        }
+    }
+
+    function regionPeaksRequestUrl(start, span, bars) {
+        const separator = peaksUrl.includes("?") ? "&" : "?";
+        return `${peaksUrl}${separator}region_start=${start.toFixed(6)}&region_span=${span.toFixed(6)}&bars=${bars}`;
+    }
+
+    function scheduleDetailPeaksFetch() {
+        if (detailFetchTimer) {
+            clearTimeout(detailFetchTimer);
+        }
+        if (!shouldUseDetailPeaks() || !peaksUrl) {
+            clearDetailPeaks();
+            return;
+        }
+        detailFetchTimer = setTimeout(() => {
+            detailFetchTimer = null;
+            fetchDetailPeaks();
+        }, 70);
+    }
+
+    async function fetchDetailPeaks() {
+        if (!shouldUseDetailPeaks() || !peaksUrl) {
+            clearDetailPeaks();
+            return;
+        }
+
+        const requestStart = viewStart;
+        const requestSpan = viewSpan;
+        const bars = Math.min(REGION_MAX_BARS, Math.max(1024, Math.ceil(canvas.width * 3)));
+        const cacheKey = `${peaksUrl}:${requestStart.toFixed(6)}:${requestSpan.toFixed(6)}:${bars}`;
+        const generation = ++detailFetchGeneration;
+
+        if (detailPeaksCache.has(cacheKey)) {
+            detailPeaks = detailPeaksCache.get(cacheKey);
+            detailPeaksMeta = { start: requestStart, span: requestSpan };
+            drawWaveform();
+            return;
+        }
+
+        try {
+            const response = await fetch(regionPeaksRequestUrl(requestStart, requestSpan, bars));
+            if (!response.ok) {
+                throw new Error("Detail wavevorm laden mislukt");
+            }
+            const data = await response.json();
+            if (generation !== detailFetchGeneration) {
+                return;
+            }
+            if (Math.abs(viewStart - requestStart) > 1e-5 || Math.abs(viewSpan - requestSpan) > 1e-5) {
+                return;
+            }
+            const values = peakValues(data);
+            if (!values.length) {
+                return;
+            }
+            detailPeaks = values;
+            detailPeaksMeta = { start: requestStart, span: requestSpan };
+            detailPeaksCache.set(cacheKey, values);
+            drawWaveform();
+        } catch {
+            // keep overview peaks until detail loads
+        }
+    }
+
+    function detailPeaksToCanvas(source, width) {
+        const samples = new Array(width);
+        const srcLen = source.length;
+        if (!srcLen) {
+            return samples;
+        }
+        for (let x = 0; x < width; x += 1) {
+            const from = Math.floor((x / width) * srcLen);
+            const to = Math.max(from + 1, Math.ceil(((x + 1) / width) * srcLen));
+            let max = 0;
+            for (let i = from; i < to; i += 1) {
+                max = Math.max(max, source[i] || 0);
+            }
+            samples[x] = max;
+        }
+        return samples;
     }
 
     function upsamplePeaks(source) {
@@ -403,6 +516,31 @@
         ctx.restore();
     }
 
+    function drawMinMaxWave(samples, width, height, mid, color, clipEndX) {
+        if (!samples.length) {
+            return;
+        }
+
+        ctx.save();
+        if (clipEndX !== null) {
+            ctx.beginPath();
+            ctx.rect(0, 0, clipEndX, height);
+            ctx.clip();
+        }
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x = 0; x < width; x += 1) {
+            const amp = samples[x] * mid * 0.98;
+            const px = x + 0.5;
+            ctx.moveTo(px, mid - amp);
+            ctx.lineTo(px, mid + amp);
+        }
+        ctx.stroke();
+        ctx.restore();
+    }
+
     function drawWaveform() {
         const width = canvas.width;
         const height = canvas.height;
@@ -419,13 +557,23 @@
             return;
         }
 
-        const samples = getVisiblePeaks(width);
+        const useDetail = shouldUseDetailPeaks() && detailPeaksMatchView();
+        const samples = useDetail
+            ? detailPeaksToCanvas(detailPeaks, width)
+            : getVisiblePeaks(width);
         const progress = timeToRatio(audio ? audio.currentTime : 0);
         const playheadX = ratioToCanvasX(progress);
 
-        drawFilledWave(samples, width, waveHeight, mid, WAVE_COLOR_IDLE, null);
-        if (playheadX > 0) {
-            drawFilledWave(samples, width, waveHeight, mid, WAVE_COLOR_PLAYED, playheadX);
+        if (useDetail) {
+            drawMinMaxWave(samples, width, waveHeight, mid, WAVE_COLOR_IDLE, null);
+            if (playheadX > 0) {
+                drawMinMaxWave(samples, width, waveHeight, mid, WAVE_COLOR_PLAYED, playheadX);
+            }
+        } else {
+            drawFilledWave(samples, width, waveHeight, mid, WAVE_COLOR_IDLE, null);
+            if (playheadX > 0) {
+                drawFilledWave(samples, width, waveHeight, mid, WAVE_COLOR_PLAYED, playheadX);
+            }
         }
 
         if (selectionRegion && duration > 0) {

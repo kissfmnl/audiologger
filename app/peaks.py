@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 PEAK_POINTS = 512
 WIRE_BARS = 512
+REGION_MAX_BARS = 8192
 BYTES_PER_SECOND_128K = 16000
 _response_cache: dict[str, tuple[int, int, dict]] = {}
 _response_cache_lock = threading.Lock()
@@ -268,6 +269,208 @@ def _decode_peaks_ffmpeg(path: Path, bars: int) -> tuple[list[float], float]:
         peaks.append(0.0)
 
     return peaks[:bars], duration
+
+
+def _decode_peaks_ffmpeg_segment(
+    path: Path, start_sec: float, segment_duration: float, bars: int
+) -> tuple[list[float], float]:
+    duration = max(get_audio_duration(path), 1.0)
+    segment_duration = max(0.01, min(segment_duration, duration - start_sec))
+    sample_rate = max(
+        8000,
+        min(48000, int(bars * 24 / max(0.01, segment_duration))),
+    )
+    samples_per_bar = max(1, int(segment_duration * sample_rate / bars))
+
+    try:
+        process = subprocess.Popen(
+            [
+                "ffmpeg",
+                "-threads",
+                "0",
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{max(0.0, start_sec):.3f}",
+                "-i",
+                str(path),
+                "-t",
+                f"{segment_duration:.3f}",
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                str(sample_rate),
+                "-f",
+                "f32le",
+                "-",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        logger.warning("ffmpeg segment peak decode failed for %s: %s", path, exc)
+        return [], duration
+
+    peaks: list[float] = []
+    bar_max = 0.0
+    samples_in_bar = 0
+    buffer = b""
+
+    assert process.stdout is not None
+    while len(peaks) < bars:
+        chunk = process.stdout.read(262144)
+        if not chunk:
+            break
+        buffer += chunk
+
+        offset = 0
+        while offset + 4 <= len(buffer) and len(peaks) < bars:
+            sample = struct.unpack_from("<f", buffer, offset)[0]
+            offset += 4
+            bar_max = max(bar_max, abs(sample))
+            samples_in_bar += 1
+            if samples_in_bar >= samples_per_bar:
+                peaks.append(bar_max)
+                bar_max = 0.0
+                samples_in_bar = 0
+
+        buffer = buffer[offset:]
+
+    if bar_max > 0 and len(peaks) < bars:
+        peaks.append(bar_max)
+
+    try:
+        process.terminate()
+        process.wait(timeout=2)
+    except (subprocess.TimeoutExpired, OSError):
+        process.kill()
+
+    max_peak = max(peaks) if peaks else 0.0
+    if max_peak > 0:
+        peaks = [round(peak / max_peak, 4) for peak in peaks]
+
+    while len(peaks) < bars:
+        peaks.append(0.0)
+
+    return peaks[:bars], duration
+
+
+def _decode_peaks_audiowaveform_segment(
+    path: Path, start_sec: float, segment_duration: float, bars: int
+) -> tuple[list[float], float]:
+    if not shutil.which("audiowaveform"):
+        return [], 0.0
+
+    duration = max(get_audio_duration(path), 1.0)
+    segment_duration = max(0.01, min(segment_duration, duration - start_sec))
+    end_sec = start_sec + segment_duration
+    pixels_per_second = max(2.0, bars / segment_duration)
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
+        output_path = Path(handle.name)
+
+    try:
+        result = subprocess.run(
+            [
+                "audiowaveform",
+                "-i",
+                str(path),
+                "-o",
+                str(output_path),
+                "--output-format",
+                "json",
+                "-b",
+                "8",
+                "--start",
+                f"{max(0.0, start_sec):.3f}",
+                "--end",
+                f"{end_sec:.3f}",
+                "--pixels-per-second",
+                f"{pixels_per_second:.4f}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "audiowaveform segment failed for %s: %s",
+                path.name,
+                (result.stderr or result.stdout)[-300:],
+            )
+            return [], duration
+
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        peaks = _parse_audiowaveform_json(payload)
+        if not peaks:
+            return [], duration
+        return peaks[:bars], duration
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        logger.warning("audiowaveform segment failed for %s: %s", path.name, exc)
+        return [], duration
+    finally:
+        output_path.unlink(missing_ok=True)
+
+
+def _decode_peaks_segment(
+    path: Path, start_sec: float, segment_duration: float, bars: int
+) -> tuple[list[float], float]:
+    peaks, duration = _decode_peaks_audiowaveform_segment(
+        path, start_sec, segment_duration, bars
+    )
+    if peaks:
+        return peaks, duration
+    return _decode_peaks_ffmpeg_segment(path, start_sec, segment_duration, bars)
+
+
+def read_peaks_region(
+    path: Path,
+    region_start: float,
+    region_span: float,
+    bars: int = 2048,
+) -> dict:
+    """High-resolution peaks for a visible editor window (ratios 0-1)."""
+    duration = estimate_duration(path)
+    if not path.exists() or path.stat().st_size == 0:
+        return {
+            "peaks": placeholder_peaks(min(bars, WIRE_BARS)),
+            "duration": duration,
+            "ready": False,
+            "precise": False,
+            "region_start": region_start,
+            "region_span": region_span,
+        }
+
+    duration = get_audio_duration(path)
+    region_start = max(0.0, min(1.0, region_start))
+    region_span = max(1e-6, min(1.0 - region_start, region_span))
+    start_sec = region_start * duration
+    segment_duration = region_span * duration
+    bars = min(REGION_MAX_BARS, max(128, int(bars)))
+
+    peaks, _ = _decode_peaks_segment(path, start_sec, segment_duration, bars)
+    if not peaks:
+        return {
+            "peaks": [],
+            "duration": duration,
+            "ready": False,
+            "precise": False,
+            "region_start": region_start,
+            "region_span": region_span,
+        }
+
+    return {
+        "peaks": peaks,
+        "duration": duration,
+        "ready": True,
+        "precise": True,
+        "region_start": region_start,
+        "region_span": region_span,
+    }
 
 
 def _decode_peaks(path: Path, bars: int) -> tuple[list[float], float]:

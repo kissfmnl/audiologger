@@ -26,7 +26,7 @@ from app.database import (
 from app.archive_view import build_hour_slots
 from app.convert_recordings import convert_wav_recordings
 from app.editor import trim_recording
-from app.peaks import estimate_duration, read_peaks_fast, warm_missing_peaks
+from app.peaks import estimate_duration, read_peaks_fast, read_peaks_region, warm_missing_peaks
 from app.recorder import get_partial_path_for_hour, get_partial_recording_path
 from app.scheduler import setup_scheduler, shutdown_scheduler
 from app.contact_protection import HONEYPOT_FIELD, issue_contact_form, validate_contact_submission
@@ -441,6 +441,9 @@ def _recording_audio_url(recording) -> str:
 def api_peaks(
     recording_id: int,
     wait: float = Query(default=0, ge=0, le=10),
+    region_start: float | None = Query(default=None, ge=0, le=1),
+    region_span: float | None = Query(default=None, gt=0, le=1),
+    bars: int = Query(default=2048, ge=64, le=8192),
     session: Session = Depends(get_session),
 ):
     recording = get_recording_by_id(session, recording_id)
@@ -451,7 +454,10 @@ def api_peaks(
     if not audio_path:
         raise HTTPException(status_code=404, detail="Audio file not found")
 
-    peak_data = read_peaks_fast(audio_path, max_wait=wait)
+    if region_start is not None and region_span is not None:
+        peak_data = read_peaks_region(audio_path, region_start, region_span, bars)
+    else:
+        peak_data = read_peaks_fast(audio_path, max_wait=wait)
     payload = {
         "peaks": peak_data["peaks"],
         "duration": peak_data["duration"],
@@ -462,6 +468,9 @@ def api_peaks(
         "title": f"{recording.station_name} · {recording.start_time.strftime('%d-%m-%Y %H:%M')}",
         "recording_id": recording.id,
     }
+    if "region_start" in peak_data:
+        payload["region_start"] = peak_data["region_start"]
+        payload["region_span"] = peak_data["region_span"]
     cache_header = (
         {"Cache-Control": "no-store"}
         if recording.status == "recording"
@@ -476,6 +485,9 @@ def api_peaks_hour(
     date: str = Query(...),
     hour: int = Query(..., ge=0, le=23),
     wait: float = Query(default=0, ge=0, le=10),
+    region_start: float | None = Query(default=None, ge=0, le=1),
+    region_span: float | None = Query(default=None, gt=0, le=1),
+    bars: int = Query(default=2048, ge=64, le=8192),
     session: Session = Depends(get_session),
 ):
     station = get_station_by_id(station_id)
@@ -487,18 +499,25 @@ def api_peaks_hour(
     if not audio_path:
         raise HTTPException(status_code=404, detail="Audio file not found")
 
-    peak_data = read_peaks_fast(audio_path, max_wait=wait)
+    if region_start is not None and region_span is not None:
+        peak_data = read_peaks_region(audio_path, region_start, region_span, bars)
+    else:
+        peak_data = read_peaks_fast(audio_path, max_wait=wait)
+    payload = {
+        "peaks": peak_data["peaks"],
+        "duration": peak_data["duration"],
+        "ready": peak_data["ready"],
+        "precise": peak_data["precise"],
+        "audio_url": f"/recordings/live-hour/{station_id}?date={date}&hour={hour}",
+        "is_live": True,
+        "title": f"{station['name']} · {hour_start.strftime('%d-%m-%Y %H:%M')}",
+        "recording_id": None,
+    }
+    if "region_start" in peak_data:
+        payload["region_start"] = peak_data["region_start"]
+        payload["region_span"] = peak_data["region_span"]
     return JSONResponse(
-        content={
-            "peaks": peak_data["peaks"],
-            "duration": peak_data["duration"],
-            "ready": peak_data["ready"],
-            "precise": peak_data["precise"],
-            "audio_url": f"/recordings/live-hour/{station_id}?date={date}&hour={hour}",
-            "is_live": True,
-            "title": f"{station['name']} · {hour_start.strftime('%d-%m-%Y %H:%M')}",
-            "recording_id": None,
-        },
+        content=payload,
         headers={"Cache-Control": "no-store"},
     )
 
