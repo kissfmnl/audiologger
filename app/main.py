@@ -1,7 +1,7 @@
 import logging
 import threading
 from contextlib import asynccontextmanager
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -100,14 +100,23 @@ def station_url(
     *,
     today: date | None = None,
 ) -> str:
-    url = f"/station/{station_id}"
+    selected_country = country or "ALL"
+    filtered = filter_stations_by_country(load_stations(active_only=False), selected_country)
+    default_id = filtered[0]["id"] if filtered else station_id
+
+    params: dict[str, str] = {}
+    if station_id != default_id:
+        params["station"] = station_id
     if day is not None:
         day_iso = day.isoformat() if isinstance(day, date) else day
         if today is None or day_iso != today.isoformat():
-            url = f"{url}/{day_iso}"
-    if country and country.upper() != "ALL":
-        url = f"{url}?country={country.upper()}"
-    return url
+            params["date"] = day_iso
+    if selected_country.upper() != "ALL":
+        params["country"] = selected_country.upper()
+
+    if not params:
+        return "/"
+    return "/?" + urlencode(params)
 
 
 def build_date_tabs(station: dict, days: int = 7) -> list[dict]:
@@ -320,43 +329,28 @@ def contact_submit(
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(
+def home_page(
     request: Request,
-    country: str | None = Query(default=None),
-):
-    stations = filter_stations_by_country(load_stations(active_only=False), country)
-    if not stations:
-        return templates.TemplateResponse(request, "dashboard.html", {})
-
-    first = stations[0]
-    url = station_url(first["id"], today=station_today(first), country=country)
-    return RedirectResponse(url=url, status_code=302)
-
-
-@app.get("/station/{station_id}", response_class=HTMLResponse)
-@app.get("/station/{station_id}/{path_date}", response_class=HTMLResponse)
-def station_page(
-    request: Request,
-    station_id: str,
-    path_date: str | None = None,
-    legacy_date: str | None = Query(default=None, alias="date"),
+    station_id: str | None = Query(default=None, alias="station"),
+    path_date: str | None = Query(default=None, alias="date"),
     country: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
-    station = get_station_by_id(station_id)
-    if not station:
-        raise HTTPException(status_code=404, detail="Station not found")
-
-    today = station_today(station)
+    all_stations = load_stations(active_only=False)
     selected_country = country or "ALL"
+    filtered = filter_stations_by_country(all_stations, selected_country)
 
-    if legacy_date is not None and path_date is None:
-        try:
-            legacy_day = date.fromisoformat(legacy_date)
-        except ValueError:
-            raise HTTPException(status_code=404, detail="Invalid date")
-        url = station_url(station_id, legacy_day, selected_country, today=today)
-        return RedirectResponse(url=url, status_code=301)
+    if not filtered:
+        return templates.TemplateResponse(request, "dashboard.html", {})
+
+    default = filtered[0]
+    target_id = station_id or default["id"]
+    station = get_station_by_id(target_id)
+
+    if not station or target_id not in {s["id"] for s in filtered}:
+        today = station_today(default)
+        url = station_url(default["id"], path_date, selected_country, today=today)
+        return RedirectResponse(url=url, status_code=302)
 
     date_filter: str | None = None
     if path_date is not None:
@@ -365,21 +359,38 @@ def station_page(
         except ValueError:
             raise HTTPException(status_code=404, detail="Invalid date")
 
-    filtered = filter_stations_by_country(load_stations(active_only=False), selected_country)
-    if filtered and station_id not in {s["id"] for s in filtered}:
-        target = filtered[0]["id"]
-        target_today = station_today(target)
-        day = date_filter or today.isoformat()
-        url = station_url(target, day, selected_country, today=target_today)
-        return RedirectResponse(url=url, status_code=302)
-
     try:
         context = build_station_page_context(station, session, selected_country, date_filter)
     except Exception as exc:
-        logger.exception("Station page failed for %s: %s", station_id, exc)
+        logger.exception("Home page failed for %s: %s", target_id, exc)
         raise HTTPException(status_code=500, detail="Kon deze datum niet laden") from exc
 
     return templates.TemplateResponse(request, "station.html", context)
+
+
+@app.get("/station/{station_id}", response_class=HTMLResponse)
+@app.get("/station/{station_id}/{path_date}", response_class=HTMLResponse)
+def legacy_station_redirect(
+    station_id: str,
+    path_date: str | None = None,
+    legacy_date: str | None = Query(default=None, alias="date"),
+    country: str | None = Query(default=None),
+):
+    station = get_station_by_id(station_id)
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+
+    today = station_today(station)
+    day_value = path_date or legacy_date
+    parsed_day: str | None = None
+    if day_value is not None:
+        try:
+            parsed_day = date.fromisoformat(day_value).isoformat()
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Invalid date")
+
+    url = station_url(station_id, parsed_day, country or "ALL", today=today)
+    return RedirectResponse(url=url, status_code=301)
 
 
 @app.get("/player/{recording_id}", response_class=HTMLResponse)
